@@ -1,1 +1,4 @@
 DrissionPage
+fastapi
+uvicorn[standard]
+pydantic
