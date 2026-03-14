@@ -28,11 +28,24 @@ class GoPlayService:
         opts.set_argument('--disable-features=PasswordLeakDetection,PasswordCheck')
         return ChromiumPage(opts)
 
+    def _dump_debug(self, step_name: str):
+        """Save HTML and screenshot for debugging"""
+        try:
+            workspace_dir = os.path.dirname(os.path.abspath(__file__))
+            debug_dir = os.path.join(workspace_dir, 'debug')
+            os.makedirs(debug_dir, exist_ok=True)
+
+            html_file = os.path.join(debug_dir, f'{step_name}.html')
+            with open(html_file, 'w', encoding='utf-8') as f:
+                f.write(self.page.html)
+            logger.info(f"Debug HTML saved: {html_file}")
+        except Exception:
+            pass
+
     def _login(self, account: str, password: str):
         self.page.get('https://goplay.vn/')
         time.sleep(3)
 
-        # Already logged in?
         if self.page.ele('css:.userInfo', timeout=3):
             logger.info("Already logged in")
             return
@@ -69,15 +82,29 @@ class GoPlayService:
     def _select_package(self, package: CrossfirePackage):
         el = self.page.ele(package.selector, timeout=5)
         if not el:
+            self._dump_debug('select_package_fail')
             raise Exception(f"Package not found: {package.pack_name}")
+
         el.click()
-        time.sleep(1)
         logger.info(f"Selected: {package.pack_name}")
 
+        # Wait for payment section to become visible
+        self.page.wait.ele_displayed('css:[data-field="payment-method"]', timeout=5)
+        logger.info("Payment section visible")
+
     def _select_payment(self, method: PaymentMethod):
-        el = self.page.ele(method.selector, timeout=5)
+        # Wait for payment item to be enabled (is-disabled class removed)
+        selector = f'css:.payment-item[data-method="{method.value}"]:not(.is-disabled)'
+        el = self.page.ele(selector, timeout=10)
+
         if not el:
-            raise Exception(f"Payment not found: {method.value}")
+            # Fallback: click even if disabled
+            logger.warning("Payment item still disabled, trying click anyway")
+            el = self.page.ele(method.selector, timeout=3)
+            if not el:
+                self._dump_debug('select_payment_fail')
+                raise Exception(f"Payment not found: {method.value}")
+
         el.click()
         time.sleep(1)
         logger.info(f"Payment: {method.name}")
@@ -85,27 +112,40 @@ class GoPlayService:
     def _click_continue(self, game: GameCode):
         btn = self.page.ele(f'css:.btn-payment-game-{game.value}', timeout=5)
         if not btn:
+            self._dump_debug('click_continue_fail')
             raise Exception("Continue button not found")
+
         btn.click()
-        time.sleep(2)
+        time.sleep(3)
         logger.info("Clicked continue")
 
     def _fill_card_and_submit(self, card_serial: str, card_code: str):
-        # Wait for popup
-        self.page.wait.ele_displayed('#card-serial', timeout=10)
+        # Wait for popup to appear
+        popup = self.page.ele('#goplayShopPopup', timeout=5)
+        serial_input = self.page.ele('#card-serial', timeout=10)
 
-        self.page.ele('#card-serial').input(card_serial)
-        self.page.ele('#card-code').input(card_code)
+        if not serial_input:
+            self._dump_debug('card_popup_fail')
+            raise Exception("Card input popup did not appear")
+
+        serial_input.clear()
+        serial_input.input(card_serial)
+
+        code_input = self.page.ele('#card-code')
+        code_input.clear()
+        code_input.input(card_code)
         time.sleep(0.5)
 
         self.page.ele('#id-shop-popup-ok-btn').click()
         logger.info("Card submitted, waiting for result...")
         time.sleep(5)
 
-        # Check for error
+        # Check for error in popup
         error_el = self.page.ele('#id-shop-popup-error', timeout=3)
         if error_el and error_el.text.strip():
-            raise Exception(f"Payment error: {error_el.text.strip()}")
+            error_msg = error_el.text.strip()
+            self._dump_debug('payment_error')
+            raise Exception(f"Payment error: {error_msg}")
 
         return True
 
@@ -140,6 +180,7 @@ class GoPlayService:
             }
         except Exception as e:
             logger.exception("Topup failed")
+            self._dump_debug('topup_error')
             return {
                 "success": False,
                 "message": str(e),
