@@ -75,6 +75,8 @@ class GoPlayService:
             opts.set_argument('--no-sandbox')
             opts.set_argument('--disable-dev-shm-usage')
             opts.set_argument('--disable-gpu')
+            opts.set_argument('--headless=new')
+            opts.set_browser_path('/usr/bin/google-chrome-stable')
         try:
             return ChromiumPage(opts)
         except BrowserConnectError as e:
