@@ -155,31 +155,44 @@ class GoPlayService:
     def _handle_turnstile(self):
         """Click Cloudflare Turnstile checkbox if present."""
         try:
-            iframe = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=2)
+            iframe = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=3)
             if not iframe:
                 logger.debug("No Turnstile iframe found, skipping")
                 return
 
             logger.info("Cloudflare Turnstile detected, clicking checkbox...")
-            checkbox = iframe.ele('tag:body', timeout=3)
-            if checkbox:
-                iframe.ele('tag:body').click()
-                time.sleep(2)
+            try:
+                iframe.ele('tag:body', timeout=3).click()
+            except Exception:
+                logger.warning("Could not click Turnstile iframe body")
 
-            # Wait for Turnstile to complete verification
-            for _ in range(10):  # max 5s
+            # Wait for Turnstile to complete verification — up to 15s with retry clicks
+            for i in range(30):
                 try:
                     response_input = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=0.3)
-                    if response_input and response_input.attr('value'):
-                        logger.info("Turnstile verified successfully")
-                        return
+                    if response_input:
+                        val = response_input.attr('value')
+                        if val:
+                            logger.info(f"Turnstile verified successfully (token: {val[:20]}...)")
+                            return
                 except Exception:
                     pass
+
+                # Retry click every 3s
+                if i > 0 and i % 6 == 0:
+                    logger.info(f"Turnstile not verified after {i*0.5:.0f}s, retrying click...")
+                    try:
+                        iframe = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=1)
+                        if iframe:
+                            iframe.ele('tag:body', timeout=1).click()
+                    except Exception:
+                        pass
+
                 time.sleep(0.5)
 
-            logger.warning("Turnstile may not be verified, proceeding anyway")
+            logger.warning("Turnstile NOT verified after 15s — proceeding anyway")
         except Exception as e:
-            logger.debug(f"Turnstile handling skipped: {e}")
+            logger.warning(f"Turnstile handling error: {e}")
 
     # ------------------------------------------------------------------
     # Login / Logout
