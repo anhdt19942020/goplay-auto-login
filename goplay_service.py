@@ -156,22 +156,27 @@ class GoPlayService:
     def _handle_turnstile(self):
         """Click Cloudflare Turnstile checkbox if present."""
         try:
-            # Find Turnstile container first
-            container = self.page.ele('#cf-turnstile', timeout=3)
-            if not container:
-                logger.debug("No Turnstile container found, skipping")
+            # Short wait for any turnstile response input to exist
+            response_input = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=3)
+            if not response_input:
+                logger.debug("No Turnstile response input found, skipping")
                 return
 
-            logger.info("Cloudflare Turnstile detected")
+            val = response_input.attr('value')
+            if val:
+                logger.info(f"Turnstile already verified (token: {val[:20]}...)")
+                return
 
-            # Scroll to make it visible
+            logger.info("Cloudflare Turnstile detected. Waiting for verification...")
+
+            # Scroll near the response input (it corresponds to the turnstile position)
             try:
-                container.scroll.to_see()
+                response_input.scroll.to_see()
                 time.sleep(0.5)
             except Exception:
                 pass
 
-            # Try clicking the iframe checkbox
+            # Try clicking the iframe body directly
             iframe = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=2)
             if iframe:
                 try:
@@ -180,22 +185,13 @@ class GoPlayService:
                 except Exception:
                     logger.debug("iframe body click failed")
 
-                # Also try clicking the container div itself
-                try:
-                    self._click(container)
-                    logger.info("Clicked Turnstile container")
-                except Exception:
-                    pass
-
             # Wait for Turnstile to complete verification — up to 15s
             for i in range(30):
                 try:
-                    response_input = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=0.3)
-                    if response_input:
-                        val = response_input.attr('value')
-                        if val:
-                            logger.info(f"Turnstile verified (token: {val[:20]}...)")
-                            return
+                    val = response_input.attr('value')
+                    if val:
+                        logger.info(f"Turnstile verified (token: {val[:20]}...)")
+                        return
                 except Exception:
                     pass
 
@@ -412,7 +408,8 @@ class GoPlayService:
         }
 
     def _fill_card_and_submit(self, card_serial: str, card_code: str):
-        serial_input = self.page.ele('#card-serial', timeout=10)
+        self._handle_turnstile()
+        serial_input = self.page.ele('#card-serial', timeout=15)
 
         if not serial_input:
             self._dump_debug('card_popup_fail')
@@ -475,7 +472,9 @@ class GoPlayService:
             self._login(account, password)
             self._navigate_to_game(game)
             self._select_package(package)
+            self._handle_turnstile()
             self._select_payment(PaymentMethod.THE_VCOIN)
+            self._handle_turnstile()
             self._click_continue(game)
             result = self._fill_card_and_submit(card_serial, card_code)
 
