@@ -113,7 +113,16 @@ class GoPlayService:
     def _check_login_popup(self) -> GoPlayErrorCode | None:
         """Check if GoPlay error popup is visible, return error code or None"""
         try:
-            popup_msg = self.page.ele('#goplayPopupMsg', timeout=0.3)
+            popup = self.page.ele('#goplayPopup', timeout=0.2)
+            if not popup:
+                return None
+            style = popup.attr('style') or ''
+            if 'display: none' in style or 'display:none' in style:
+                return None
+            if 'display' not in style:
+                return None
+
+            popup_msg = self.page.ele('#goplayPopupMsg', timeout=0.2)
             if not popup_msg:
                 return None
             text = popup_msg.text.strip() if popup_msg.text else ''
@@ -132,14 +141,17 @@ class GoPlayService:
     def _wait_login_result(self, timeout: int = 15):
         """Polling loop: wait for login success OR error popup"""
         max_checks = int(timeout / 0.5)
-        for _ in range(max_checks):
+        for i in range(max_checks):
             if self.page.ele('#btn-header-shop', timeout=0.2):
                 logger.info("Login OK")
                 return
             error_code = self._check_login_popup()
             if error_code:
                 raise GoPlayError(error_code)
+            if i % 5 == 4:
+                logger.debug(f"Waiting for login result... ({(i+1)*0.5:.0f}s)")
             time.sleep(0.5)
+        self._dump_debug('login_timeout')
         raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT)
 
     def _logout(self):

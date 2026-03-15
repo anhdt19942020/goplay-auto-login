@@ -1,7 +1,7 @@
 <!DOCTYPE html><html lang="en"><head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chọn tài khoản - goPlay.vn</title>
+    <title>Đăng Nhập - goPlay.vn</title>
     <link rel="icon" type="image/png" href="/oauth/favicon.ico">
     <link rel="stylesheet" href="/oauth/lib/bootstrap/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.0/css/all.min.css" integrity="sha512-DxV+EoADOkOygM4IR9yXP8Sb2qwgidEmeqAEmDKIOfPRQZOWbXCzLC6vjbZyy0vPisbH2SyW27+ddLVCN+OMzQ==" crossorigin="anonymous" referrerpolicy="no-referrer">
@@ -61,6 +61,9 @@
 <body class="">
     <input type="hidden" id="rootPath" value="https://goplay.vn/oauth">
     <div class="main">
+                <div class="box-logout">
+                    <a href="https://goplay.vn/oauth/dang-nhap/other-account?client_id=ffaf5a88644e4b4e&amp;redirect_uri=https%3a%2f%2fgoplay.vn%2fsso%2fsignin-goplay&amp;state=eyJ1cmkiOiIvIiwic3QiOiI2MzkwOTE3MDc0ODQwMTIwNzQiLCJydCI6ImxvZ2luIn0&amp;isNewAccount=0&amp;uname=520.id" class="btn-logout">Thoát<img src="/oauth/images/icon-logout.png" alt=""> </a>
+                </div>
         <div class="backToHome">
             <a href="https://goplay.vn" title="Về trang chủ">Về trang chủ</a>
         </div>
@@ -72,47 +75,56 @@
             <img src="https://goplay.vn/oauth/images/logo_goplay.png" alt="goPlay Logo">
         </div>
         <div class="ssoPage-form form loginPanel">
-            
-
-<div class="ssoPage--header">
-    <h3 class="box-title">Đăng nhập/Tạo tài khoản</h3>
+            <div class="ssoPage--header">
+    <h3 class="box-title">Đăng nhập</h3>
 </div>
 <div class="ssoPage--body">
     <div class="login-option">
-        <form id="account" method="post" class="login-form">
+        <form method="POST" class="login-form" novalidate="novalidate">
             
             <div class="cts-form-group">
-                <label for="inputUserName">Tên đăng nhập</label>
-                <div class="input-group-username">
-                    <input class="form-control vtc-user-login is-invalid" placeholder="Nhập tên đăng nhập" autocomplete="off" disabled="disabled">
-                    <button type="button" id="clearUsername" class="icon-delete" style="display: none;">
-                        <img src="/oauth/images/icon-delete.svg" alt="">
-                    </button>
+                <div class="line-label">
+                    <label for="Input_UserName">Tên đăng nhập</label>
+                    <a href="https://goplay.vn/oauth/dang-nhap/tai-khoan?client_id=ffaf5a88644e4b4e&amp;redirect_uri=https%3a%2f%2fgoplay.vn%2fsso%2fsignin-goplay&amp;state=eyJ1cmkiOiIvIiwic3QiOiI2MzkwOTE3MDc0ODQwMTIwNzQiLCJydCI6ImxvZ2luIn0&amp;isNewAccount=0&amp;uname=520.id" title="" class="change-link">Đổi tài khoản</a>
                 </div>
-                <div class="input-error error-msg invalid-feedback align-items-center gap-1">
+                <div class="input-wrapper">
+                    <input type="text" id="username" autocomplete="username" value="520.id" readonly="" placeholder="Nhập tên đăng nhập/Số điện thoại" data-val="true" data-val-required="Nhập tên tài khoản" name="Input.UserName">
+                </div>
+                <div id="usernameError" class="error-msg d-none align-items-center gap-1">
                     <img src="/oauth/images/icon-error.png" class="icon-error" alt="">
-                    <span class="text-danger">Tài khoản anhcamyt1 chưa được đăng ký tài khoản goPlay. Vui lòng chọn Tạo tài khoản để tiếp tục sử dụng.</span>
+                    <span class="text-danger field-validation-valid" data-valmsg-for="Input.UserName" data-valmsg-replace="false">T&amp;#xEA;n &amp;#x111;&amp;#x103;ng nh&amp;#x1EAD;p kh&amp;#xF4;ng h&amp;#x1EE3;p l&amp;#x1EC7;</span>
                 </div>
             </div>
-            <div class="cts-form-group cts-form-group-btn"><a href="https://goplay.vn/oauth/dang-ky/tao-tai-khoan?client_id=ffaf5a88644e4b4e&amp;redirect_uri=https%3a%2f%2fgoplay.vn%2fsso%2fsignin-goplay&amp;state=eyJ1cmkiOiIvIiwic3QiOiI2MzkwOTE3MDA4MjI2MTMyNTMiLCJydCI6ImxvZ2luIn0&amp;isNewAccount=1&amp;uname=anhcamyt1" class="cts-sso-btn">Tạo tài khoản</a>
-                                    <button class="cts-sso-btn btn-back">Quay lại</button></div>
-        <input name="__RequestVerificationToken" type="hidden" value="CfDJ8BB8ftiqLdxOvsxMnlT3k-zMRgUv394N4mlsK2rWC1oRfJSPiUYF02a1Xp0qDwcTAYLLKUEiIYEIyEyD_bJWahtzWUvbEFApGrRIxNbaOprp8WAiITZuEEl0mtQMXrWpP8ei7PJ4lYYD647Iwhfel6E"></form>
-    </div>
 
+            <div class="cts-form-group">
+                <label for="Input_Password">Mật khẩu</label>
+                <div class="input-wrapper">
+                    <input type="password" autocomplete="current-password" id="password" required="" placeholder="Nhập mật khẩu" data-val="true" data-val-required="Nhập mật khẩu" name="Input.Password" aria-describedby="password-error" class="valid" aria-invalid="false">
+                    <span class="fixed-icon" id="togglePass">
+                        <i class="fa-regular fa-eye"></i>
+                        <i class="fa-regular fa-eye-slash"></i>
+                    </span>
+                </div>
+                <div id="passwordError" class="error-msg d-none align-items-center gap-1">
+                    <img src="/oauth/images/icon-error.png" class="icon-error" alt="">
+                    <span class="text-danger field-validation-valid" data-valmsg-for="Input.Password" data-valmsg-replace="false"></span>
+                </div>
+            </div>
+            <div class="check-save-pass">
+                <div class="form-check mb-3">
+                    <input class="d-none" type="checkbox" data-val="true" data-val-required="The Lưu đăng nhập field is required." id="Input_RememberMe" name="Input.RememberMe" value="true">
+                    <label class="form-check-label custom-checkbox" for="Input_RememberMe">
+                        <span class="checkbox-icon"></span>
+                        Lưu đăng nhập
+                    </label>
+                </div>
+                <div class="forgot-password">
+                    <a href="https://goplay.vn/oauth/dang-nhap/khoi-phuc-mat-khau?client_id=ffaf5a88644e4b4e&amp;redirect_uri=https%3a%2f%2fgoplay.vn%2fsso%2fsignin-goplay&amp;state=eyJ1cmkiOiIvIiwic3QiOiI2MzkwOTE3MDc0ODQwMTIwNzQiLCJydCI6ImxvZ2luIn0&amp;isNewAccount=0&amp;uname=520.id">Quên mật khẩu</a>
+                </div>
+            </div>
+            <button class="cts-sso-btn" id="btn-login-pass">Đăng nhập</button>
+        <input name="__RequestVerificationToken" type="hidden" value="CfDJ8BB8ftiqLdxOvsxMnlT3k-ywanISNH82LyOjdX6Tw6FM4_rDoTUvQ_LHOSe5OKiTu68vH4BFFdGE4w3w4y9bjc290gtBW4JLmaqBfgZISBN_y_Fgb74xC4xBBt7eKcmSLgv4F5F4YKJ3fFEgoIG0vaE"><input name="Input.RememberMe" type="hidden" value="false"></form>
 
-    <div class="login-option login-social">
-        <p>Hoặc đăng nhập nhanh bằng</p>
-        <div class="lstQuickLoginMethod">
-                <a href="https://appleid.apple.com/auth/authorize?client_id=com.goplay.service&amp;response_type=code%20id_token&amp;scope=name%20email&amp;redirect_uri=https://goplay.vn/oauth/signin-apple&amp;state=%7B%22id%22%3A%22ffaf5a88644e4b4e%22%2C%22uri%22%3A%22https%3A%2F%2Fgoplay.vn%2Fsso%2Fsignin-goplay%22%2C%22st%22%3A%22eyJ1cmkiOiIvIiwic3QiOiI2MzkwOTE3MDA4MjI2MTMyNTMiLCJydCI6ImxvZ2luIn0%22%7D&amp;response_mode=form_post" class="btn-social-login">
-                    <img src="/oauth/images/ic_apple.png" alt="">
-                </a>
-                <a href="https://www.facebook.com/v6.0/dialog/oauth?client_id=104532326337&amp;redirect_uri=https%3A%2F%2Fgoplay.vn%2Foauth%2Fsignin-facebook&amp;scope=email&amp;state=%7B%22id%22%3A%22ffaf5a88644e4b4e%22%2C%22uri%22%3A%22https%3A%2F%2Fgoplay.vn%2Fsso%2Fsignin-goplay%22%2C%22st%22%3A%22eyJ1cmkiOiIvIiwic3QiOiI2MzkwOTE3MDA4MjI2MTMyNTMiLCJydCI6ImxvZ2luIn0%22%7D" class="btn-social-login">
-                    <img src="/oauth/images/ic_facebook.png" alt="">
-                </a>
-                <a href="https://accounts.google.com/o/oauth2/auth?client_id=968111791801-up5hvsuofg6o1e3n9m4ue1uqa258on3k.apps.googleusercontent.com&amp;response_type=code&amp;scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile&amp;redirect_uri=https://goplay.vn/oauth/signin-google&amp;state=%7B%22id%22%3A%22ffaf5a88644e4b4e%22%2C%22uri%22%3A%22https%3A%2F%2Fgoplay.vn%2Fsso%2Fsignin-goplay%22%2C%22st%22%3A%22eyJ1cmkiOiIvIiwic3QiOiI2MzkwOTE3MDA4MjI2MTMyNTMiLCJydCI6ImxvZ2luIn0%22%7D&amp;login_hint=" class="btn-social-login">
-                    <img src="/oauth/images/ic_google.png" alt="">
-                </a>
-        </div>
     </div>
 </div>
 
@@ -122,14 +134,14 @@
 </div>
 
         <!-- đặt gần cuối body, chỉ 1 lần -->
-        <div id="goplayPopup" class="popup-overlay">
+        <div id="goplayPopup" class="popup-overlay" style="display: none;">
             <div class="popup-content">
-                <div class="icon"><img id="goplayPopupImg" class="popup-icon" src="" alt="Thông báo"></div>
+                <div class="icon"><img id="goplayPopupImg" class="popup-icon" src="https://goplay.vn/oauth/images/icon-error.svg" alt="Thông báo"></div>
                 <span id="goplayPopupTitle" class="popup-title">Thông báo</span>
-                <p class="popup-message" id="goplayPopupMsg">Nội dung thông báo…</p>
+                <p class="popup-message" id="goplayPopupMsg">Sai mật khẩu</p>
                 <div class="popup-actions">
                     <button type="button" class="cts-sso-btn popup-confirm-btn" id="goplayPopupOk">Xác nhận</button>
-                    <button type="button" class="popup-cancel-btn" id="goplayPopupCancel">Quay lại</button>
+                    <button type="button" class="popup-cancel-btn" id="goplayPopupCancel" style="display: none;">Quay lại</button>
                 </div>
             </div>
         </div>
@@ -161,7 +173,7 @@
 <script src="/oauth/lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js"></script>
 
     
-    <div id="cf-turnstile" class="cf-turnstile-contaner"><div><input type="hidden" name="cf-turnstile-response" id="cf-chl-widget-1bz40_response" value="0.bFqsRDGBIL6AHPNKQuhIfNEov_jAmruDEGwXJyqIiYOoToqxiGUdoMW-i8oi5hy2YXdBLCqiy9gW_-i-Y-kRFvz6xJgp385w0yJxD9D8G8Hz9FTBLa4VW0yYp8unB820dds094xE5T6LbjX4GwbaElCQGKH94mt6y4GxHgMXf_j7QoCqRNrlBeb1JFQOKMbl9UHu6sniTQ0byIWmZjBzA73tegdtE5ThZLRZgZi6FVBpuozXd4oTLj5SH9ar1u0OfB8BNEBitcUzTJX8HYjumb1lixiOsVjNabdrwMrRx6LZATzaCwmwJlFmL15jHQ2KXlwLI27KGV3q8oHEU_IR9P86J4i7PK8XUmBKdJhF1jz98vcAyWMQ8NDiP502BWaXx8_d00YYSK3ffZ5X--hcApblvAhBHkAkir4izr7Txdi14ugR9sFVMgKknCpptt6DMahYJjPTnxOYw6jdUY3DfpIRKuoX5cZFMWE6plkBwMP0QPVnkiZIQvBhBhiT9RAqauJzdS5Rnr8GZF5GVq5MqLG7UZ5rBWPKHzVlkMy17ANJU4W-rZLaEb6nRAAVfp3MsZg-_RS8gxXEuxSUnWSEczwWxqtC8hplja8GNisL_3TLDH2wlX7cxInGpmtKBDhpemnBmf0UQqJRzsHJrnkixGZmgYnhDrHEH_NnaMntrNQ-56dADAODbPQHEQDPjNwuMuDRWZFECkxn3JBCdNBlYaoF0aYi7jr6wtDwKQUJU3g-F8GetxXcHCELE0CoFDZiyP-tGjROXvmE2lVkLBSVIrnwdlol89fcnYnCeRmhn52c_DXHEptnY3wHkHLFb0gBNIAzhRkcLRO8AMsKxcHDyfVoCXO3d9kwQyn6cZH2x1anuoIW_CCkLJ9g5dQZXP99nqQFWUOlSICCbEyEeBSu2vL2VoaIeM6etz4zZYZ84Ao.5ue8I86bZBA8NT6eVcg5Ow.2592c56f37c540f9c2ea075b5d0b2d779bb2761b21dbbd2845444fbfb7a6d584"></div></div>
+    <div id="cf-turnstile" class="cf-turnstile-contaner"><div><input type="hidden" name="cf-turnstile-response" id="cf-chl-widget-ak1bq_response" value=""></div></div>
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" data-auto-render="false" async="" defer=""></script>
     <script src="/oauth/js/turnstile-helper.js?v=Nflcg7XvLNe8exkdIOBJnkm6_Ld5v9Fw76n8lKPJz9g"></script>
     <script>
@@ -188,51 +200,11 @@
         })();
     </script>
 
-    <script>$(function () {
-            $(".vtc-user-login").on("input change", function () {
-                if ($(".vtc-user-login").val().length > 0) {
-                    $("#clearUsername").removeClass("d-none");
-                } else {
-                    $("#clearUsername").addClass("d-none");
-                }
-            });
+    <script src="/oauth/js/Login.js?v=UKvUPf15Fszlp_nmKYZiOlpRmGJ7XYip24H1_VHKoH0" data-cfasync="false"></script>
+    <script>
+      
+        </script>
 
-            $("#clearUsername").on("click", function () {
-                $(".vtc-user-login").val("").trigger("input");
-                $(this).addClass("d-none");
-            });
-
-            $("#btn-submit-username").on("click", async function (e) {
-                e.preventDefault();
-                let valid = checkValidateLogin($(".vtc-user-login").val());
-                if (valid != null) {
-                    if (valid.valid) {
-                        var dataInput = {}
-                        dataInput.inputUserName = valid.type == "phone" ? formatphoneNumber($(".vtc-user-login").val()) : $(".vtc-user-login").val();
-                        let result = await CallPageHandlerApi('CheckLogin', dataInput, 'Đang kiểm tra');
-                        let redirectUrl = result.redirectUrl || "";
-                        $(".text-danger").text(result.message);
-                        $(".input-error").removeClass("d-none");
-                        $(".vtc-user-login").addClass("is-invalid");
-                        if (result.success) {
-                            $(".vtc-user-login").attr("disabled", true);
-                            $("#clearUsername").hide();
-                            let html = `<a href="${redirectUrl}" class="cts-sso-btn" >Tạo tài khoản</a>
-                                    <button class="cts-sso-btn btn-back" >Quay lại</button>`;
-                            $(".cts-form-group-btn").html(html);
-                        }
-                    } else {
-                        $(".text-danger").text(valid.message);                                                                                                                                                                                                                         
-                        $(".input-error").removeClass("d-none");
-                        $(".vtc-user-login").addClass("is-invalid");
-                    }
-                }
-            });
-            $(document).on("click", "#btn-back", function () {
-                window.history.back();
-            });
-
-        });</script>
 
 
 
