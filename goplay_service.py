@@ -145,32 +145,52 @@ class GoPlayService:
     def _handle_turnstile(self):
         """Click Cloudflare Turnstile checkbox if present."""
         try:
-            iframe = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=3)
-            if not iframe:
-                logger.debug("No Turnstile iframe found, skipping")
+            # Find Turnstile container first
+            container = self.page.ele('#cf-turnstile', timeout=3)
+            if not container:
+                logger.debug("No Turnstile container found, skipping")
                 return
 
-            logger.info("Cloudflare Turnstile detected, clicking checkbox...")
-            try:
-                iframe.ele('tag:body', timeout=3).click()
-            except Exception:
-                logger.warning("Could not click Turnstile iframe body")
+            logger.info("Cloudflare Turnstile detected")
 
-            # Wait for Turnstile to complete verification — up to 15s with retry clicks
+            # Scroll to make it visible
+            try:
+                container.scroll.to_see()
+                time.sleep(0.5)
+            except Exception:
+                pass
+
+            # Try clicking the iframe checkbox
+            iframe = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=2)
+            if iframe:
+                try:
+                    iframe.ele('tag:body', timeout=2).click()
+                    logger.info("Clicked Turnstile iframe body")
+                except Exception:
+                    logger.debug("iframe body click failed")
+
+                # Also try clicking the container div itself
+                try:
+                    self._click(container)
+                    logger.info("Clicked Turnstile container")
+                except Exception:
+                    pass
+
+            # Wait for Turnstile to complete verification — up to 15s
             for i in range(30):
                 try:
                     response_input = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=0.3)
                     if response_input:
                         val = response_input.attr('value')
                         if val:
-                            logger.info(f"Turnstile verified successfully (token: {val[:20]}...)")
+                            logger.info(f"Turnstile verified (token: {val[:20]}...)")
                             return
                 except Exception:
                     pass
 
                 # Retry click every 3s
                 if i > 0 and i % 6 == 0:
-                    logger.info(f"Turnstile not verified after {i*0.5:.0f}s, retrying click...")
+                    logger.info(f"Turnstile not verified after {i*0.5:.0f}s, retrying...")
                     try:
                         iframe = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=1)
                         if iframe:
@@ -180,7 +200,7 @@ class GoPlayService:
 
                 time.sleep(0.5)
 
-            logger.warning("Turnstile NOT verified after 15s — proceeding anyway")
+            logger.warning("Turnstile NOT verified after 15s")
         except Exception as e:
             logger.warning(f"Turnstile handling error: {e}")
 
