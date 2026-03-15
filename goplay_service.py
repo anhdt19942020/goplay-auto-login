@@ -3,6 +3,7 @@ import time
 import logging
 
 from DrissionPage import ChromiumOptions, ChromiumPage
+from DrissionPage.errors import BrowserConnectError
 from enums import CrossfirePackage, GameCode, GoPlayErrorCode, PaymentMethod
 
 logger = logging.getLogger(__name__)
@@ -29,13 +30,20 @@ class GoPlayService:
     def _create_browser(self):
         opts = ChromiumOptions()
         opts.set_user_data_path(self.chrome_profile_dir)
+        opts.set_local_port(9222)
         opts.set_pref('credentials_enable_service', False)
         opts.set_pref('profile.password_manager_enabled', False)
         opts.set_pref('profile.password_manager_leak_detection', False)
         opts.set_pref('profile.default_content_setting_values.notifications', 2)
         opts.set_argument('--disable-notifications')
         opts.set_argument('--disable-features=PasswordLeakDetection,PasswordCheck')
-        return ChromiumPage(opts)
+        try:
+            return ChromiumPage(opts)
+        except BrowserConnectError as e:
+            raise GoPlayError(
+                GoPlayErrorCode.BROWSER_ERROR,
+                f"Không thể kết nối Chrome port 9222. Hãy tắt Chrome cũ và thử lại. ({e})",
+            )
 
     def _dump_debug(self, step_name: str):
         """Save HTML and screenshot for debugging"""
