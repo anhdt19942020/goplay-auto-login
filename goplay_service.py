@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import logging
 
@@ -257,6 +258,49 @@ class GoPlayService:
         self.page.wait.ele_displayed('#goplayShopPopup', timeout=8)
         logger.info("Clicked continue")
 
+    def _check_result_popup(self) -> dict | None:
+        """Check if goplayPopup is visible, return parsed result or None"""
+        try:
+            popup = self.page.ele('#goplayPopup', timeout=0.2)
+            if not popup:
+                return None
+            style = popup.attr('style') or ''
+            if 'display: none' in style or 'display:none' in style:
+                return None
+            if 'display' not in style:
+                return None
+
+            title_el = self.page.ele('#goplayPopupTitle', timeout=0.2)
+            msg_el = self.page.ele('#goplayPopupMsg', timeout=0.2)
+            if not title_el or not msg_el:
+                return None
+            title = title_el.text.strip() if title_el.text else ''
+            msg = msg_el.text.strip() if msg_el.text else ''
+            if not title and not msg:
+                return None
+
+            img_el = self.page.ele('#goplayPopupImg', timeout=0.2)
+            img_src = img_el.attr('src') if img_el else ''
+            is_success = 'success' in (img_src or '') or 'thành công' in title.lower()
+
+            ok_btn = self.page.ele('#goplayPopupOk', timeout=1)
+            if ok_btn:
+                ok_btn.click()
+                time.sleep(0.3)
+
+            return {'success': is_success, 'title': title, 'message': msg}
+        except Exception:
+            return None
+
+    def _parse_topup_result(self, msg: str) -> dict:
+        """Parse GO received and balance from popup message"""
+        go_match = re.search(r'nhận được\s*(\d+)\s*GO', msg, re.IGNORECASE)
+        balance_match = re.search(r'hiện tại[:\s]*(\d+)\s*GO', msg, re.IGNORECASE)
+        return {
+            'go_received': int(go_match.group(1)) if go_match else None,
+            'balance': int(balance_match.group(1)) if balance_match else None,
+        }
+
     def _fill_card_and_submit(self, card_serial: str, card_code: str):
         serial_input = self.page.ele('#card-serial', timeout=10)
 
@@ -275,17 +319,32 @@ class GoPlayService:
         self.page.ele('#id-shop-popup-ok-btn').click()
         logger.info("Card submitted, waiting for result...")
 
-        for _ in range(20):  # max 10s
-            error_el = self.page.ele('#id-shop-popup-error', timeout=0.3)
+        for _ in range(24):  # max 12s
+            error_el = self.page.ele('#id-shop-popup-error', timeout=0.2)
             if error_el and error_el.text.strip():
                 self._dump_debug('payment_error')
                 raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, error_el.text.strip())
-            popup = self.page.ele('#goplayShopPopup', timeout=0.2)
-            if not popup or 'display: none' in (popup.attr('style') or ''):
-                return True
+
+            result = self._check_result_popup()
+            if result:
+                if result['success']:
+                    parsed = self._parse_topup_result(result['message'])
+                    logger.info(f"Top-up success: {result['message']}")
+                    return {
+                        'success': True,
+                        'title': result['title'],
+                        'message': result['message'],
+                        'go_received': parsed['go_received'],
+                        'balance': parsed['balance'],
+                    }
+                else:
+                    self._dump_debug('payment_error')
+                    raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, result['message'] or result['title'])
+
             time.sleep(0.5)
 
-        return True
+        self._dump_debug('card_submit_timeout')
+        raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, "Không nhận được kết quả nạp thẻ sau 12s")
 
     # ------------------------------------------------------------------
     # Public API
@@ -308,17 +367,19 @@ class GoPlayService:
             self._select_package(package)
             self._select_payment(PaymentMethod.THE_VCOIN)
             self._click_continue(game)
-            self._fill_card_and_submit(card_serial, card_code)
+            result = self._fill_card_and_submit(card_serial, card_code)
 
             return {
                 "success": True,
                 "error_code": None,
-                "message": "Nạp thẻ thành công",
+                "message": result.get('message', 'Nạp thẻ thành công'),
                 "detail": {
                     "game": game.value,
                     "package": package.pack_name,
                     "price": package.price,
                     "go": package.go,
+                    "go_received": result.get('go_received'),
+                    "balance": result.get('balance'),
                 },
             }
         except GoPlayError as e:
