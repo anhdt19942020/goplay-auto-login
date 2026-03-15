@@ -1,6 +1,7 @@
 # Chrome profile data
 chrome_profile_vlcm/
 chrome_profile_test/
+debug/
 
 # Python
 __pycache__/
