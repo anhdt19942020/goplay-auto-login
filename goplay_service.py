@@ -54,9 +54,22 @@ class GoPlayService:
 
     _page: ChromiumPage | None = None
     _current_account: str | None = None
-    _chrome_profile_dir = os.path.join(WORKSPACE_DIR, 'chrome_profile_vlcm')
+
+    @staticmethod
+    def _get_chrome_profile_dir() -> str:
+        """Use real Chrome User Data (has cookies/trust) with separate profile."""
+        user_data = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data')
+        if os.path.isdir(user_data):
+            return user_data
+        # Fallback to local workspace profile
+        return os.path.join(WORKSPACE_DIR, 'chrome_profile_vlcm')
+
+    _chrome_profile_dir = None  # set in __init__
 
     def __init__(self):
+        if GoPlayService._chrome_profile_dir is None:
+            GoPlayService._chrome_profile_dir = self._get_chrome_profile_dir()
+            logger.info(f"Chrome profile dir: {GoPlayService._chrome_profile_dir}")
         os.makedirs(self._chrome_profile_dir, exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -90,6 +103,7 @@ class GoPlayService:
         opts.set_argument('--disable-notifications')
         opts.set_argument('--disable-features=PasswordLeakDetection,PasswordCheck')
         opts.set_argument('--disable-save-password-bubble')
+        opts.set_argument('--profile-directory=GoPlay')
 
         try:
             return ChromiumPage(opts)
