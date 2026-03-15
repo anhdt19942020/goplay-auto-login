@@ -184,7 +184,15 @@ class GoPlayService:
         self.page.ele('css:.vtc-user-login').input(account)
         self.page.ele('#btn-submit-username').click()
 
-        self.page.wait.ele_displayed('#password')
+        for _ in range(20):  # max 10s
+            if self.page.ele('#password', timeout=0.3):
+                break
+            error_el = self.page.ele('css:.input-error .text-danger', timeout=0.2)
+            if error_el and error_el.text.strip():
+                raise GoPlayError(GoPlayErrorCode.ACCOUNT_NOT_REGISTERED, error_el.text.strip())
+        else:
+            raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT, "Không thể chuyển sang bước nhập mật khẩu")
+
         self.page.ele('#password').input(password)
         self.page.ele('#btn-login-pass').click()
 

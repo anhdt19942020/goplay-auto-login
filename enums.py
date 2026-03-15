@@ -8,6 +8,7 @@ class GoPlayErrorCode(str, Enum):
     WRONG_PASSWORD = "WRONG_PASSWORD"
     ACCOUNT_LOCKED = "ACCOUNT_LOCKED"
     ACCOUNT_NOT_FOUND = "ACCOUNT_NOT_FOUND"
+    ACCOUNT_NOT_REGISTERED = "ACCOUNT_NOT_REGISTERED"
     LOGIN_TIMEOUT = "LOGIN_TIMEOUT"
 
     # Input validation
@@ -43,6 +44,7 @@ _ERROR_MESSAGES: dict[str, str] = {
     GoPlayErrorCode.WRONG_PASSWORD: "Sai mật khẩu",
     GoPlayErrorCode.ACCOUNT_LOCKED: "Tài khoản bị khóa",
     GoPlayErrorCode.ACCOUNT_NOT_FOUND: "Tài khoản không tồn tại",
+    GoPlayErrorCode.ACCOUNT_NOT_REGISTERED: "Tài khoản chưa đăng ký GoPlay",
     GoPlayErrorCode.LOGIN_TIMEOUT: "Đăng nhập quá thời gian chờ",
     GoPlayErrorCode.INVALID_GAME: "Mã game không hợp lệ",
     GoPlayErrorCode.INVALID_PACKAGE: "Gói nạp không hợp lệ",
@@ -62,6 +64,7 @@ _POPUP_TEXT_MAP: dict[str, GoPlayErrorCode] = {
     "tài khoản không tồn tại": GoPlayErrorCode.ACCOUNT_NOT_FOUND,
     "account not found": GoPlayErrorCode.ACCOUNT_NOT_FOUND,
     "không tìm thấy tài khoản": GoPlayErrorCode.ACCOUNT_NOT_FOUND,
+    "chưa được đăng ký": GoPlayErrorCode.ACCOUNT_NOT_REGISTERED,
 }
 
 
