@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from typing import Optional
 
 from fastapi import FastAPI, APIRouter
 from pydantic import BaseModel
@@ -8,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from enums import CrossfirePackage, GameCode, GoPlayErrorCode
 from goplay_service import GoPlayService
+from telegram_service import notify_topup, call_callback
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -17,13 +19,14 @@ TASK_TIMEOUT = 90
 
 
 class TopUpTask:
-    def __init__(self, game, account, password, package, card_serial, card_code):
+    def __init__(self, game, account, password, package, card_serial, card_code, url_callback=None):
         self.game = game
         self.account = account
         self.password = password
         self.package = package
         self.card_serial = card_serial
         self.card_code = card_code
+        self.url_callback = url_callback
         self.future: asyncio.Future = asyncio.get_event_loop().create_future()
         self.created_at = time.time()
 
@@ -56,16 +59,23 @@ async def queue_worker():
             if not task.future.cancelled():
                 task.future.set_result(result)
         except Exception as e:
+            result = {
+                "success": False,
+                "error_code": GoPlayErrorCode.UNKNOWN_ERROR.value,
+                "message": str(e),
+                "detail": None,
+            }
             if not task.future.cancelled():
-                task.future.set_result({
-                    "success": False,
-                    "error_code": GoPlayErrorCode.UNKNOWN_ERROR.value,
-                    "message": str(e),
-                    "detail": None,
-                })
+                task.future.set_result(result)
         finally:
             queue_stats["processing"] = False
             queue_stats["total_processed"] += 1
+
+            # Fire-and-forget: callback + telegram
+            notify_payload = {**result, "account": task.account, "game": task.game.value}
+            asyncio.create_task(notify_topup(notify_payload))
+            if task.url_callback:
+                asyncio.create_task(call_callback(task.url_callback, result))
             task_queue.task_done()
 
 
@@ -87,6 +97,7 @@ class TopUpRequest(BaseModel):
     package: str
     card_serial: str
     card_code: str
+    url_callback: Optional[str] = None
 
     model_config = {
         "json_schema_extra": {
@@ -163,7 +174,7 @@ async def topup(req: TopUpRequest):
             "detail": {"queue_size": task_queue.qsize()},
         }
 
-    task = TopUpTask(game, req.account, req.password, package, req.card_serial, req.card_code)
+    task = TopUpTask(game, req.account, req.password, package, req.card_serial, req.card_code, req.url_callback)
     await task_queue.put(task)
     position = task_queue.qsize()
     logger.info(f"Queued topup for {req.account} | position: {position}")

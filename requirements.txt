@@ -2,3 +2,4 @@ DrissionPage
 fastapi
 uvicorn[standard]
 pydantic
+httpx
