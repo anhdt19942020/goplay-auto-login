@@ -55,7 +55,6 @@ class GoPlayService:
     _page: ChromiumPage | None = None
     _current_account: str | None = None
     _chrome_profile_dir = os.path.join(WORKSPACE_DIR, 'chrome_profile_vlcm')
-    _is_headless = bool(os.environ.get('DOCKER_ENV'))
 
     def __init__(self):
         os.makedirs(self._chrome_profile_dir, exist_ok=True)
@@ -95,15 +94,6 @@ class GoPlayService:
         opts.set_argument('--disable-notifications')
         opts.set_argument('--disable-features=PasswordLeakDetection,PasswordCheck')
 
-        if os.environ.get('DOCKER_ENV'):
-            opts.set_argument('--no-sandbox')
-            opts.set_argument('--disable-dev-shm-usage')
-            opts.set_argument('--disable-gpu')
-            opts.set_argument('--window-size=1280,720')
-            opts.set_argument('--disable-blink-features=AutomationControlled')
-            opts.set_browser_path(
-                '/home/naptot/.cache/puppeteer/chrome/linux-145.0.7632.77/chrome-linux64/chrome'
-            )
         try:
             return ChromiumPage(opts)
         except BrowserConnectError as e:
@@ -131,11 +121,8 @@ class GoPlayService:
     # ------------------------------------------------------------------
 
     def _click(self, el):
-        """Click element — use JS click in headless mode to avoid position errors"""
-        if self._is_headless:
-            el.click(by_js=True)
-        else:
-            el.click()
+        """Click element"""
+        el.click()
 
     def _dump_debug(self, step_name: str):
         try:
