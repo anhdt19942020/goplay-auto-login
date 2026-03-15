@@ -101,6 +101,8 @@ class GoPlayService:
             opts.set_argument('--disable-gpu')
             opts.set_argument('--headless=new')
             opts.set_argument('--window-size=1280,720')
+            opts.set_argument('--disable-blink-features=AutomationControlled')
+            opts.set_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.7632.77 Safari/537.36')
             opts.set_browser_path(
                 '/home/naptot/.cache/puppeteer/chrome/linux-145.0.7632.77/chrome-linux64/chrome'
             )
@@ -269,6 +271,7 @@ class GoPlayService:
         self._click(self.page.ele('css:a.btn-auth.btn-login'))
         self.page.wait.ele_displayed('css:.vtc-user-login')
         self.page.ele('css:.vtc-user-login').input(account)
+        self._handle_turnstile()
         self._click(self.page.ele('#btn-submit-username'))
 
         for _ in range(20):  # max 10s
