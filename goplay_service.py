@@ -55,6 +55,7 @@ class GoPlayService:
     _page: ChromiumPage | None = None
     _current_account: str | None = None
     _chrome_profile_dir = os.path.join(WORKSPACE_DIR, 'chrome_profile_vlcm')
+    _is_headless = bool(os.environ.get('DOCKER_ENV'))
 
     def __init__(self):
         os.makedirs(self._chrome_profile_dir, exist_ok=True)
@@ -99,6 +100,7 @@ class GoPlayService:
             opts.set_argument('--disable-dev-shm-usage')
             opts.set_argument('--disable-gpu')
             opts.set_argument('--headless=new')
+            opts.set_argument('--window-size=1280,720')
             opts.set_browser_path(
                 '/home/naptot/.cache/puppeteer/chrome/linux-145.0.7632.77/chrome-linux64/chrome'
             )
@@ -127,6 +129,13 @@ class GoPlayService:
     # ------------------------------------------------------------------
     # Debug
     # ------------------------------------------------------------------
+
+    def _click(self, el):
+        """Click element — use JS click in headless mode to avoid position errors"""
+        if self._is_headless:
+            el.click(by_js=True)
+        else:
+            el.click()
 
     def _dump_debug(self, step_name: str):
         try:
@@ -198,7 +207,7 @@ class GoPlayService:
             logger.warning(f"Popup error detected: '{text}' → {code.value}")
             ok_btn = self.page.ele('#goplayPopupOk', timeout=1)
             if ok_btn:
-                ok_btn.click()
+                self._click(ok_btn)
                 time.sleep(0.3)
             return code
         except Exception:
@@ -254,13 +263,13 @@ class GoPlayService:
             self._logout()
 
         logger.info(f"Logging in as {account}...")
-        self.page.ele('css:.btn-auth.box-login').click()
+        self._click(self.page.ele('css:.btn-auth.box-login'))
         self.page.wait.ele_displayed('css:a.btn-auth.btn-login', timeout=3)
 
-        self.page.ele('css:a.btn-auth.btn-login').click()
+        self._click(self.page.ele('css:a.btn-auth.btn-login'))
         self.page.wait.ele_displayed('css:.vtc-user-login')
         self.page.ele('css:.vtc-user-login').input(account)
-        self.page.ele('#btn-submit-username').click()
+        self._click(self.page.ele('#btn-submit-username'))
 
         for _ in range(20):  # max 10s
             if self.page.ele('#password', timeout=0.3):
@@ -273,7 +282,7 @@ class GoPlayService:
 
         self.page.ele('#password').input(password)
         self._handle_turnstile()
-        self.page.ele('#btn-login-pass').click()
+        self._click(self.page.ele('#btn-login-pass'))
 
         self._wait_login_result()
         GoPlayService._current_account = account
@@ -293,7 +302,7 @@ class GoPlayService:
             self._dump_debug('select_package_fail')
             raise GoPlayError(GoPlayErrorCode.PACKAGE_NOT_FOUND, f"Không tìm thấy gói: {package.pack_name}")
 
-        el.click()
+        self._click(el)
         logger.info(f"Selected: {package.pack_name}")
 
         self.page.wait.ele_displayed('css:[data-field="payment-method"]', timeout=5)
@@ -310,7 +319,7 @@ class GoPlayService:
                 self._dump_debug('select_payment_fail')
                 raise GoPlayError(GoPlayErrorCode.PAYMENT_NOT_FOUND, f"Không tìm thấy: {method.value}")
 
-        el.click()
+        self._click(el)
         time.sleep(0.3)
         logger.info(f"Payment: {method.name}")
 
@@ -320,7 +329,7 @@ class GoPlayService:
             self._dump_debug('click_continue_fail')
             raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, "Không tìm thấy nút Tiếp tục")
 
-        btn.click()
+        self._click(btn)
         self.page.wait.ele_displayed('#goplayShopPopup', timeout=8)
         logger.info("Clicked continue")
 
@@ -351,7 +360,7 @@ class GoPlayService:
 
             ok_btn = self.page.ele('#goplayPopupOk', timeout=1)
             if ok_btn:
-                ok_btn.click()
+                self._click(ok_btn)
                 time.sleep(0.3)
 
             return {'success': is_success, 'title': title, 'message': msg}
@@ -382,7 +391,7 @@ class GoPlayService:
         code_input.input(card_code)
         time.sleep(0.3)
 
-        self.page.ele('#id-shop-popup-ok-btn').click()
+        self._click(self.page.ele('#id-shop-popup-ok-btn'))
         logger.info("Card submitted, waiting for result...")
 
         for _ in range(24):  # max 12s
