@@ -14,7 +14,7 @@ from telegram_service import notify_topup, call_callback
 import os
 
 LOG_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_FILE = os.path.join(LOG_DIR, "server.log")
+LOG_FILE = os.path.join(LOG_DIR, "app.log")
 
 logging.basicConfig(
     level=logging.INFO,
