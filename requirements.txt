@@ -1,4 +1,4 @@
-DrissionPage
+DrissionPage==4.0.5.6
 fastapi
 uvicorn[standard]
 pydantic
