@@ -1,6 +1,66 @@
 from enum import Enum
 
 
+class GoPlayErrorCode(str, Enum):
+    """Error codes for GoPlay API responses"""
+
+    # Login errors
+    WRONG_PASSWORD = "WRONG_PASSWORD"
+    ACCOUNT_LOCKED = "ACCOUNT_LOCKED"
+    ACCOUNT_NOT_FOUND = "ACCOUNT_NOT_FOUND"
+    LOGIN_TIMEOUT = "LOGIN_TIMEOUT"
+
+    # Input validation
+    INVALID_GAME = "INVALID_GAME"
+    INVALID_PACKAGE = "INVALID_PACKAGE"
+
+    # Shop errors
+    PACKAGE_NOT_FOUND = "PACKAGE_NOT_FOUND"
+    PAYMENT_NOT_FOUND = "PAYMENT_NOT_FOUND"
+    PAYMENT_ERROR = "PAYMENT_ERROR"
+
+    # Generic
+    UNKNOWN_ERROR = "UNKNOWN_ERROR"
+
+    @property
+    def message(self) -> str:
+        return _ERROR_MESSAGES.get(self, "Lỗi không xác định")
+
+    @classmethod
+    def from_popup_message(cls, popup_text: str) -> "GoPlayErrorCode":
+        """Map GoPlay popup message text to error code"""
+        normalized = popup_text.strip().lower()
+        for text, code in _POPUP_TEXT_MAP.items():
+            if text in normalized:
+                return code
+        return cls.UNKNOWN_ERROR
+
+
+_ERROR_MESSAGES: dict[str, str] = {
+    GoPlayErrorCode.WRONG_PASSWORD: "Sai mật khẩu",
+    GoPlayErrorCode.ACCOUNT_LOCKED: "Tài khoản bị khóa",
+    GoPlayErrorCode.ACCOUNT_NOT_FOUND: "Tài khoản không tồn tại",
+    GoPlayErrorCode.LOGIN_TIMEOUT: "Đăng nhập quá thời gian chờ",
+    GoPlayErrorCode.INVALID_GAME: "Mã game không hợp lệ",
+    GoPlayErrorCode.INVALID_PACKAGE: "Gói nạp không hợp lệ",
+    GoPlayErrorCode.PACKAGE_NOT_FOUND: "Không tìm thấy gói nạp trên trang",
+    GoPlayErrorCode.PAYMENT_NOT_FOUND: "Không tìm thấy phương thức thanh toán",
+    GoPlayErrorCode.PAYMENT_ERROR: "Lỗi thanh toán",
+    GoPlayErrorCode.UNKNOWN_ERROR: "Lỗi không xác định",
+}
+
+_POPUP_TEXT_MAP: dict[str, GoPlayErrorCode] = {
+    "sai mật khẩu": GoPlayErrorCode.WRONG_PASSWORD,
+    "wrong password": GoPlayErrorCode.WRONG_PASSWORD,
+    "mật khẩu không đúng": GoPlayErrorCode.WRONG_PASSWORD,
+    "tài khoản bị khóa": GoPlayErrorCode.ACCOUNT_LOCKED,
+    "account locked": GoPlayErrorCode.ACCOUNT_LOCKED,
+    "tài khoản không tồn tại": GoPlayErrorCode.ACCOUNT_NOT_FOUND,
+    "account not found": GoPlayErrorCode.ACCOUNT_NOT_FOUND,
+    "không tìm thấy tài khoản": GoPlayErrorCode.ACCOUNT_NOT_FOUND,
+}
+
+
 class GameCode(str, Enum):
     CATS_AND_SOUP = "CNS"
     CROSSFIRE = "CF"

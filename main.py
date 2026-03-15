@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI, APIRouter
 from pydantic import BaseModel
 
-from enums import CrossfirePackage, GameCode
+from enums import CrossfirePackage, GameCode, GoPlayErrorCode
 from goplay_service import GoPlayService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -66,13 +66,23 @@ def topup(req: TopUpRequest):
         game = GameCode(req.game)
     except ValueError:
         valid = [g.value for g in GameCode]
-        return {"success": False, "message": f"Invalid game. Valid: {valid}"}
+        return {
+            "success": False,
+            "error_code": GoPlayErrorCode.INVALID_GAME.value,
+            "message": f"{GoPlayErrorCode.INVALID_GAME.message}. Hợp lệ: {valid}",
+            "detail": None,
+        }
 
     try:
         package = CrossfirePackage[req.package]
     except KeyError:
         valid = [p.name for p in CrossfirePackage]
-        return {"success": False, "message": f"Invalid package. Valid: {valid}"}
+        return {
+            "success": False,
+            "error_code": GoPlayErrorCode.INVALID_PACKAGE.value,
+            "message": f"{GoPlayErrorCode.INVALID_PACKAGE.message}. Hợp lệ: {valid}",
+            "detail": None,
+        }
 
     service = GoPlayService()
     result = service.topup(

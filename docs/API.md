@@ -102,6 +102,7 @@ POST /go-play/topup
 ```json
 {
   "success": true,
+  "error_code": null,
   "message": "Nạp thẻ thành công",
   "detail": {
     "game": "CF",
@@ -116,10 +117,28 @@ POST /go-play/topup
 ```json
 {
   "success": false,
-  "message": "Payment error: Mã thẻ không hợp lệ",
+  "error_code": "WRONG_PASSWORD",
+  "message": "Sai mật khẩu",
   "detail": null
 }
 ```
+
+---
+
+### Bảng mã lỗi (Error Codes)
+
+| Error Code | Mô tả | Khi nào xảy ra |
+|------------|--------|-----------------|
+| `WRONG_PASSWORD` | Sai mật khẩu | Nhập sai password đăng nhập |
+| `ACCOUNT_LOCKED` | Tài khoản bị khóa | Tài khoản bị ban hoặc lock |
+| `ACCOUNT_NOT_FOUND` | Tài khoản không tồn tại | Username không tồn tại trên GoPlay |
+| `LOGIN_TIMEOUT` | Đăng nhập quá thời gian chờ | Server GoPlay không phản hồi trong 15s |
+| `INVALID_GAME` | Mã game không hợp lệ | Gửi game code không nằm trong danh sách |
+| `INVALID_PACKAGE` | Gói nạp không hợp lệ | Gửi package key không nằm trong danh sách |
+| `PACKAGE_NOT_FOUND` | Không tìm thấy gói nạp trên trang | Gói nạp không hiển thị trên trang game |
+| `PAYMENT_NOT_FOUND` | Không tìm thấy phương thức thanh toán | Phương thức thanh toán không khả dụng |
+| `PAYMENT_ERROR` | Lỗi thanh toán | Thẻ VCOIN không hợp lệ, hết hạn, v.v. |
+| `UNKNOWN_ERROR` | Lỗi không xác định | Lỗi hệ thống hoặc lỗi chưa được phân loại |
 
 ---
 

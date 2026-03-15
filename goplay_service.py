@@ -3,9 +3,18 @@ import time
 import logging
 
 from DrissionPage import ChromiumOptions, ChromiumPage
-from enums import CrossfirePackage, GameCode, PaymentMethod
+from enums import CrossfirePackage, GameCode, GoPlayErrorCode, PaymentMethod
 
 logger = logging.getLogger(__name__)
+
+
+class GoPlayError(Exception):
+    """Structured error with error code for API responses"""
+
+    def __init__(self, code: GoPlayErrorCode, detail: str | None = None):
+        self.code = code
+        self.detail = detail or code.message
+        super().__init__(self.detail)
 
 
 class GoPlayService:
@@ -42,6 +51,41 @@ class GoPlayService:
         except Exception:
             pass
 
+    def _check_login_popup(self) -> GoPlayErrorCode | None:
+        """Check if GoPlay error popup is visible, return error code or None"""
+        try:
+            popup_msg = self.page.ele('#goplayPopupMsg', timeout=0.3)
+            if not popup_msg:
+                return None
+            text = popup_msg.text.strip() if popup_msg.text else ''
+            if not text:
+                return None
+            code = GoPlayErrorCode.from_popup_message(text)
+            logger.warning(f"Popup error detected: '{text}' → {code.value}")
+            # Dismiss popup
+            ok_btn = self.page.ele('#goplayPopupOk', timeout=1)
+            if ok_btn:
+                ok_btn.click()
+                time.sleep(0.3)
+            return code
+        except Exception:
+            return None
+
+    def _wait_login_result(self, timeout: int = 15):
+        """Polling loop: wait for login success OR error popup"""
+        max_checks = int(timeout / 0.5)
+        for _ in range(max_checks):
+            # Check success
+            if self.page.ele('#btn-header-shop', timeout=0.2):
+                logger.info("Login OK")
+                return
+            # Check error popup
+            error_code = self._check_login_popup()
+            if error_code:
+                raise GoPlayError(error_code)
+            time.sleep(0.5)
+        raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT)
+
     def _login(self, account: str, password: str):
         self.page.get('https://goplay.vn/')
         time.sleep(3)
@@ -63,8 +107,7 @@ class GoPlayService:
         self.page.ele('#password').input(password)
         self.page.ele('#btn-login-pass').click()
 
-        self.page.wait.ele_displayed('#btn-header-shop', timeout=15)
-        logger.info("Login OK")
+        self._wait_login_result()
 
     def _navigate_to_game(self, game: GameCode):
         self.page.ele('#btn-header-shop').click()
@@ -83,7 +126,7 @@ class GoPlayService:
         el = self.page.ele(package.selector, timeout=5)
         if not el:
             self._dump_debug('select_package_fail')
-            raise Exception(f"Package not found: {package.pack_name}")
+            raise GoPlayError(GoPlayErrorCode.PACKAGE_NOT_FOUND, f"Không tìm thấy gói: {package.pack_name}")
 
         el.click()
         logger.info(f"Selected: {package.pack_name}")
@@ -103,7 +146,7 @@ class GoPlayService:
             el = self.page.ele(method.selector, timeout=3)
             if not el:
                 self._dump_debug('select_payment_fail')
-                raise Exception(f"Payment not found: {method.value}")
+                raise GoPlayError(GoPlayErrorCode.PAYMENT_NOT_FOUND, f"Không tìm thấy: {method.value}")
 
         el.click()
         time.sleep(1)
@@ -113,7 +156,7 @@ class GoPlayService:
         btn = self.page.ele(f'css:.btn-payment-game-{game.value}', timeout=5)
         if not btn:
             self._dump_debug('click_continue_fail')
-            raise Exception("Continue button not found")
+            raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, "Không tìm thấy nút Tiếp tục")
 
         btn.click()
         time.sleep(3)
@@ -126,7 +169,7 @@ class GoPlayService:
 
         if not serial_input:
             self._dump_debug('card_popup_fail')
-            raise Exception("Card input popup did not appear")
+            raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, "Popup nhập thẻ không xuất hiện")
 
         serial_input.clear()
         serial_input.input(card_serial)
@@ -145,7 +188,7 @@ class GoPlayService:
         if error_el and error_el.text.strip():
             error_msg = error_el.text.strip()
             self._dump_debug('payment_error')
-            raise Exception(f"Payment error: {error_msg}")
+            raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, error_msg)
 
         return True
 
@@ -170,6 +213,7 @@ class GoPlayService:
 
             return {
                 "success": True,
+                "error_code": None,
                 "message": "Nạp thẻ thành công",
                 "detail": {
                     "game": game.value,
@@ -178,11 +222,21 @@ class GoPlayService:
                     "go": package.go,
                 },
             }
-        except Exception as e:
-            logger.exception("Topup failed")
+        except GoPlayError as e:
+            logger.error(f"GoPlay error [{e.code.value}]: {e.detail}")
             self._dump_debug('topup_error')
             return {
                 "success": False,
+                "error_code": e.code.value,
+                "message": e.detail,
+                "detail": None,
+            }
+        except Exception as e:
+            logger.exception("Unexpected error")
+            self._dump_debug('topup_error')
+            return {
+                "success": False,
+                "error_code": GoPlayErrorCode.UNKNOWN_ERROR.value,
                 "message": str(e),
                 "detail": None,
             }
