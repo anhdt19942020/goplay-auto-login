@@ -76,7 +76,9 @@ class GoPlayService:
             opts.set_argument('--disable-dev-shm-usage')
             opts.set_argument('--disable-gpu')
             opts.set_argument('--headless=new')
-            opts.set_browser_path('/usr/bin/google-chrome-stable')
+            opts.set_browser_path(
+                '/home/naptot/.cache/puppeteer/chrome/linux-145.0.7632.77/chrome-linux64/chrome'
+            )
         try:
             return ChromiumPage(opts)
         except BrowserConnectError as e:
