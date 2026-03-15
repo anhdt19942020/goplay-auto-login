@@ -8,6 +8,8 @@ from enums import CrossfirePackage, GameCode, GoPlayErrorCode, PaymentMethod
 
 logger = logging.getLogger(__name__)
 
+WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 class GoPlayError(Exception):
     """Structured error with error code for API responses"""
@@ -19,17 +21,47 @@ class GoPlayError(Exception):
 
 
 class GoPlayService:
-    """Browser automation service for GoPlay.vn top-up"""
+    """Browser automation service for GoPlay.vn top-up
+
+    Uses a persistent Chrome browser across requests.
+    Tracks the current logged-in account and only re-logs
+    when the account changes.
+    """
+
+    _page: ChromiumPage | None = None
+    _current_account: str | None = None
+    _chrome_profile_dir = os.path.join(WORKSPACE_DIR, 'chrome_profile_vlcm')
 
     def __init__(self):
-        workspace_dir = os.path.dirname(os.path.abspath(__file__))
-        self.chrome_profile_dir = os.path.join(workspace_dir, 'chrome_profile_vlcm')
-        os.makedirs(self.chrome_profile_dir, exist_ok=True)
-        self.page = None
+        os.makedirs(self._chrome_profile_dir, exist_ok=True)
 
-    def _create_browser(self):
+    # ------------------------------------------------------------------
+    # Browser lifecycle
+    # ------------------------------------------------------------------
+
+    def _ensure_browser(self):
+        """Reuse existing browser or create a new one if dead/missing."""
+        if self._is_browser_alive():
+            return
+        logger.info("Starting new Chrome instance...")
+        GoPlayService._page = self._create_browser()
+        GoPlayService._current_account = None
+
+    def _is_browser_alive(self) -> bool:
+        if GoPlayService._page is None:
+            return False
+        try:
+            _ = GoPlayService._page.title
+            return True
+        except Exception:
+            logger.warning("Browser is dead, will restart")
+            GoPlayService._page = None
+            GoPlayService._current_account = None
+            return False
+
+    def _create_browser(self) -> ChromiumPage:
         opts = ChromiumOptions()
-        opts.set_user_data_path(self.chrome_profile_dir)
+        opts.set_user_data_path(self._chrome_profile_dir)
         opts.set_local_port(9222)
         opts.set_pref('credentials_enable_service', False)
         opts.set_pref('profile.password_manager_enabled', False)
@@ -45,19 +77,38 @@ class GoPlayService:
                 f"Không thể kết nối Chrome port 9222. Hãy tắt Chrome cũ và thử lại. ({e})",
             )
 
-    def _dump_debug(self, step_name: str):
-        """Save HTML and screenshot for debugging"""
-        try:
-            workspace_dir = os.path.dirname(os.path.abspath(__file__))
-            debug_dir = os.path.join(workspace_dir, 'debug')
-            os.makedirs(debug_dir, exist_ok=True)
+    def _kill_browser(self):
+        """Force-quit browser and reset state (used on fatal errors)."""
+        if GoPlayService._page:
+            try:
+                GoPlayService._page.quit()
+            except Exception:
+                pass
+        GoPlayService._page = None
+        GoPlayService._current_account = None
 
+    @property
+    def page(self) -> ChromiumPage:
+        return GoPlayService._page
+
+    # ------------------------------------------------------------------
+    # Debug
+    # ------------------------------------------------------------------
+
+    def _dump_debug(self, step_name: str):
+        try:
+            debug_dir = os.path.join(WORKSPACE_DIR, 'debug')
+            os.makedirs(debug_dir, exist_ok=True)
             html_file = os.path.join(debug_dir, f'{step_name}.html')
             with open(html_file, 'w', encoding='utf-8') as f:
                 f.write(self.page.html)
             logger.info(f"Debug HTML saved: {html_file}")
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # Login / Logout
+    # ------------------------------------------------------------------
 
     def _check_login_popup(self) -> GoPlayErrorCode | None:
         """Check if GoPlay error popup is visible, return error code or None"""
@@ -70,7 +121,6 @@ class GoPlayService:
                 return None
             code = GoPlayErrorCode.from_popup_message(text)
             logger.warning(f"Popup error detected: '{text}' → {code.value}")
-            # Dismiss popup
             ok_btn = self.page.ele('#goplayPopupOk', timeout=1)
             if ok_btn:
                 ok_btn.click()
@@ -83,26 +133,51 @@ class GoPlayService:
         """Polling loop: wait for login success OR error popup"""
         max_checks = int(timeout / 0.5)
         for _ in range(max_checks):
-            # Check success
             if self.page.ele('#btn-header-shop', timeout=0.2):
                 logger.info("Login OK")
                 return
-            # Check error popup
             error_code = self._check_login_popup()
             if error_code:
                 raise GoPlayError(error_code)
             time.sleep(0.5)
         raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT)
 
+    def _logout(self):
+        """Logout by clearing cookies and reloading."""
+        logger.info(f"Logging out (was: {GoPlayService._current_account})...")
+        try:
+            self.page.set.cookies.clear()
+            self.page.get('https://goplay.vn/')
+            time.sleep(2)
+        except Exception:
+            pass
+        GoPlayService._current_account = None
+
     def _login(self, account: str, password: str):
+        # Already logged in with the same account → skip
+        if GoPlayService._current_account == account:
+            self.page.get('https://goplay.vn/')
+            time.sleep(2)
+            if self.page.ele('css:.userInfo', timeout=3):
+                logger.info(f"Already logged in as {account}, skipping login")
+                return
+            # Session expired, need to re-login
+            logger.info("Session expired, re-logging in...")
+            GoPlayService._current_account = None
+
+        # Different account → logout first
+        if GoPlayService._current_account is not None:
+            self._logout()
+
         self.page.get('https://goplay.vn/')
         time.sleep(3)
 
+        # Double-check: maybe already logged in (cookie from profile)
         if self.page.ele('css:.userInfo', timeout=3):
-            logger.info("Already logged in")
-            return
+            logger.info("Already logged in (from profile), logging out for new account...")
+            self._logout()
 
-        logger.info("Performing login...")
+        logger.info(f"Logging in as {account}...")
         self.page.ele('css:.btn-auth.box-login').click()
         time.sleep(1)
 
@@ -116,6 +191,11 @@ class GoPlayService:
         self.page.ele('#btn-login-pass').click()
 
         self._wait_login_result()
+        GoPlayService._current_account = account
+
+    # ------------------------------------------------------------------
+    # Shopping flow
+    # ------------------------------------------------------------------
 
     def _navigate_to_game(self, game: GameCode):
         self.page.ele('#btn-header-shop').click()
@@ -139,17 +219,14 @@ class GoPlayService:
         el.click()
         logger.info(f"Selected: {package.pack_name}")
 
-        # Wait for payment section to become visible
         self.page.wait.ele_displayed('css:[data-field="payment-method"]', timeout=5)
         logger.info("Payment section visible")
 
     def _select_payment(self, method: PaymentMethod):
-        # Wait for payment item to be enabled (is-disabled class removed)
         selector = f'css:.payment-item[data-method="{method.value}"]:not(.is-disabled)'
         el = self.page.ele(selector, timeout=10)
 
         if not el:
-            # Fallback: click even if disabled
             logger.warning("Payment item still disabled, trying click anyway")
             el = self.page.ele(method.selector, timeout=3)
             if not el:
@@ -171,7 +248,6 @@ class GoPlayService:
         logger.info("Clicked continue")
 
     def _fill_card_and_submit(self, card_serial: str, card_code: str):
-        # Wait for popup to appear
         popup = self.page.ele('#goplayShopPopup', timeout=5)
         serial_input = self.page.ele('#card-serial', timeout=10)
 
@@ -191,7 +267,6 @@ class GoPlayService:
         logger.info("Card submitted, waiting for result...")
         time.sleep(5)
 
-        # Check for error in popup
         error_el = self.page.ele('#id-shop-popup-error', timeout=3)
         if error_el and error_el.text.strip():
             error_msg = error_el.text.strip()
@@ -199,6 +274,10 @@ class GoPlayService:
             raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, error_msg)
 
         return True
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def topup(
         self,
@@ -210,7 +289,7 @@ class GoPlayService:
         card_code: str,
     ) -> dict:
         try:
-            self.page = self._create_browser()
+            self._ensure_browser()
 
             self._login(account, password)
             self._navigate_to_game(game)
@@ -233,6 +312,9 @@ class GoPlayService:
         except GoPlayError as e:
             logger.error(f"GoPlay error [{e.code.value}]: {e.detail}")
             self._dump_debug('topup_error')
+            # Browser-level errors → kill browser to reset
+            if e.code == GoPlayErrorCode.BROWSER_ERROR:
+                self._kill_browser()
             return {
                 "success": False,
                 "error_code": e.code.value,
@@ -242,16 +324,10 @@ class GoPlayService:
         except Exception as e:
             logger.exception("Unexpected error")
             self._dump_debug('topup_error')
+            self._kill_browser()
             return {
                 "success": False,
                 "error_code": GoPlayErrorCode.UNKNOWN_ERROR.value,
                 "message": str(e),
                 "detail": None,
             }
-        finally:
-            if self.page:
-                try:
-                    self.page.quit()
-                except Exception:
-                    pass
-                self.page = None
