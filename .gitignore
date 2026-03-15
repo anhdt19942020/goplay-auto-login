@@ -15,6 +15,7 @@ build/
 
 # Virtual environment
 venv/
+.venv/
 env/
 .env
 
@@ -23,3 +24,15 @@ env/
 .idea/
 *.swp
 *.swo
+
+# Logs
+*.log
+
+# Daemon
+goplay_api.pid
+
+# Temp
+test_request.json
+test_api.py
+task_xml.txt
+start_bg.bat
