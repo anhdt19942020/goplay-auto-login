@@ -9,6 +9,29 @@ from enums import CrossfirePackage, GameCode, GoPlayErrorCode, PaymentMethod
 
 logger = logging.getLogger(__name__)
 
+# DrissionPage error messages are in Chinese → translate to Vietnamese
+_CN_TO_VI = {
+    '浏览器连接失败': 'Không thể kết nối trình duyệt',
+    '该元素没有位置和大小': 'Phần tử không có vị trí hoặc kích thước (trang chưa load xong)',
+    '没有找到元素': 'Không tìm thấy phần tử trên trang',
+    '元素未加载成功': 'Phần tử chưa tải xong',
+    '未连接浏览器': 'Chưa kết nối trình duyệt',
+    '页面已关闭': 'Trang đã bị đóng',
+    '连接超时': 'Kết nối bị timeout',
+    '等待元素超时': 'Chờ phần tử bị timeout',
+    '代理': 'proxy',
+}
+
+
+def _translate_error(msg: str) -> str:
+    """Translate common DrissionPage Chinese errors to Vietnamese"""
+    result = str(msg)
+    for cn, vi in _CN_TO_VI.items():
+        if cn in result:
+            result = vi
+            break
+    return result
+
 WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -84,7 +107,7 @@ class GoPlayService:
         except BrowserConnectError as e:
             raise GoPlayError(
                 GoPlayErrorCode.BROWSER_ERROR,
-                f"Không thể kết nối Chrome port 9222. Hãy tắt Chrome cũ và thử lại. ({e})",
+                f"Không thể kết nối Chrome. ({_translate_error(e)})",
             )
 
     def _kill_browser(self):
@@ -444,6 +467,6 @@ class GoPlayService:
             return {
                 "success": False,
                 "error_code": GoPlayErrorCode.UNKNOWN_ERROR.value,
-                "message": str(e),
+                "message": _translate_error(e),
                 "detail": None,
             }
