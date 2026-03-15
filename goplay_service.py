@@ -108,6 +108,39 @@ class GoPlayService:
             pass
 
     # ------------------------------------------------------------------
+    # Cloudflare Turnstile
+    # ------------------------------------------------------------------
+
+    def _handle_turnstile(self):
+        """Click Cloudflare Turnstile checkbox if present."""
+        try:
+            iframe = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=2)
+            if not iframe:
+                logger.debug("No Turnstile iframe found, skipping")
+                return
+
+            logger.info("Cloudflare Turnstile detected, clicking checkbox...")
+            checkbox = iframe.ele('tag:body', timeout=3)
+            if checkbox:
+                iframe.ele('tag:body').click()
+                time.sleep(2)
+
+            # Wait for Turnstile to complete verification
+            for _ in range(10):  # max 5s
+                try:
+                    response_input = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=0.3)
+                    if response_input and response_input.attr('value'):
+                        logger.info("Turnstile verified successfully")
+                        return
+                except Exception:
+                    pass
+                time.sleep(0.5)
+
+            logger.warning("Turnstile may not be verified, proceeding anyway")
+        except Exception as e:
+            logger.debug(f"Turnstile handling skipped: {e}")
+
+    # ------------------------------------------------------------------
     # Login / Logout
     # ------------------------------------------------------------------
 
@@ -207,6 +240,7 @@ class GoPlayService:
             raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT, "Không thể chuyển sang bước nhập mật khẩu")
 
         self.page.ele('#password').input(password)
+        self._handle_turnstile()
         self.page.ele('#btn-login-pass').click()
 
         self._wait_login_result()
