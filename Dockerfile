@@ -21,10 +21,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-RUN chmod +x start.sh
 
 ENV DOCKER_ENV=1
 
 EXPOSE 8000
 
-CMD ["./start.sh"]
+CMD ["bash", "-c", "Xvfb :99 -screen 0 1280x720x24 -nolisten tcp & export DISPLAY=:99 && sleep 1 && exec uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1"]

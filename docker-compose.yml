@@ -7,6 +7,9 @@ services:
       - chrome_data:/app/chrome_profile_vlcm
     restart: always
     shm_size: '2gb'
+    privileged: true
+    security_opt:
+      - apparmor:unconfined
     environment:
       - DOCKER_ENV=1
 
