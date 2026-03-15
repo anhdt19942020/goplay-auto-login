@@ -87,12 +87,9 @@ class GoPlayService:
         opts = ChromiumOptions()
         opts.set_user_data_path(self._chrome_profile_dir)
         opts.set_local_port(9222)
-        opts.set_pref('credentials_enable_service', False)
-        opts.set_pref('profile.password_manager_enabled', False)
-        opts.set_pref('profile.password_manager_leak_detection', False)
-        opts.set_pref('profile.default_content_setting_values.notifications', 2)
         opts.set_argument('--disable-notifications')
         opts.set_argument('--disable-features=PasswordLeakDetection,PasswordCheck')
+        opts.set_argument('--disable-save-password-bubble')
 
         try:
             return ChromiumPage(opts)
@@ -121,10 +118,16 @@ class GoPlayService:
     # ------------------------------------------------------------------
 
     def _click(self, el):
-        """Click element"""
-        el.click()
+        """Click element — fallback to JS click if normal click fails"""
+        try:
+            el.click()
+        except Exception:
+            logger.debug("Normal click failed, using JS click")
+            el.click(by_js=True)
 
     def _dump_debug(self, step_name: str):
+        import traceback
+        logger.error(f"Debug dump at step '{step_name}': {traceback.format_exc()}")
         try:
             debug_dir = os.path.join(WORKSPACE_DIR, 'debug')
             os.makedirs(debug_dir, exist_ok=True)
