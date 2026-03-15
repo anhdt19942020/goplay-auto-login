@@ -148,7 +148,7 @@ class GoPlayService:
         try:
             self.page.set.cookies.clear()
             self.page.get('https://goplay.vn/')
-            time.sleep(2)
+            self.page.wait.ele_displayed('css:.btn-auth.box-login', timeout=5)
         except Exception:
             pass
         GoPlayService._current_account = None
@@ -156,9 +156,7 @@ class GoPlayService:
     def _login(self, account: str, password: str):
         # Already logged in with the same account → skip
         if GoPlayService._current_account == account:
-            self.page.get('https://goplay.vn/')
-            time.sleep(2)
-            if self.page.ele('css:.userInfo', timeout=3):
+            if self.page.ele('css:.userInfo', timeout=1):
                 logger.info(f"Already logged in as {account}, skipping login")
                 return
             # Session expired, need to re-login
@@ -170,16 +168,16 @@ class GoPlayService:
             self._logout()
 
         self.page.get('https://goplay.vn/')
-        time.sleep(3)
+        self.page.wait.ele_displayed('css:.btn-auth.box-login', timeout=8)
 
         # Double-check: maybe already logged in (cookie from profile)
-        if self.page.ele('css:.userInfo', timeout=3):
+        if self.page.ele('css:.userInfo', timeout=1):
             logger.info("Already logged in (from profile), logging out for new account...")
             self._logout()
 
         logger.info(f"Logging in as {account}...")
         self.page.ele('css:.btn-auth.box-login').click()
-        time.sleep(1)
+        self.page.wait.ele_displayed('css:a.btn-auth.btn-login', timeout=3)
 
         self.page.ele('css:a.btn-auth.btn-login').click()
         self.page.wait.ele_displayed('css:.vtc-user-login')
@@ -198,16 +196,8 @@ class GoPlayService:
     # ------------------------------------------------------------------
 
     def _navigate_to_game(self, game: GameCode):
-        self.page.ele('#btn-header-shop').click()
-        time.sleep(3)
-
-        link = self.page.ele(f'css:a[href*="/cua-hang/{game.value}"]', timeout=5)
-        if link:
-            link.click()
-        else:
-            self.page.get(f'https://goplay.vn/cua-hang/{game.value}')
-
-        time.sleep(3)
+        self.page.get(f'https://goplay.vn/cua-hang/{game.value}')
+        self.page.wait.ele_displayed('css:.goPlay-package', timeout=10)
         logger.info(f"Game page: {self.page.url}")
 
     def _select_package(self, package: CrossfirePackage):
@@ -234,7 +224,7 @@ class GoPlayService:
                 raise GoPlayError(GoPlayErrorCode.PAYMENT_NOT_FOUND, f"Không tìm thấy: {method.value}")
 
         el.click()
-        time.sleep(1)
+        time.sleep(0.3)
         logger.info(f"Payment: {method.name}")
 
     def _click_continue(self, game: GameCode):
@@ -244,11 +234,10 @@ class GoPlayService:
             raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, "Không tìm thấy nút Tiếp tục")
 
         btn.click()
-        time.sleep(3)
+        self.page.wait.ele_displayed('#goplayShopPopup', timeout=8)
         logger.info("Clicked continue")
 
     def _fill_card_and_submit(self, card_serial: str, card_code: str):
-        popup = self.page.ele('#goplayShopPopup', timeout=5)
         serial_input = self.page.ele('#card-serial', timeout=10)
 
         if not serial_input:
@@ -261,17 +250,20 @@ class GoPlayService:
         code_input = self.page.ele('#card-code')
         code_input.clear()
         code_input.input(card_code)
-        time.sleep(0.5)
+        time.sleep(0.3)
 
         self.page.ele('#id-shop-popup-ok-btn').click()
         logger.info("Card submitted, waiting for result...")
-        time.sleep(5)
 
-        error_el = self.page.ele('#id-shop-popup-error', timeout=3)
-        if error_el and error_el.text.strip():
-            error_msg = error_el.text.strip()
-            self._dump_debug('payment_error')
-            raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, error_msg)
+        for _ in range(20):  # max 10s
+            error_el = self.page.ele('#id-shop-popup-error', timeout=0.3)
+            if error_el and error_el.text.strip():
+                self._dump_debug('payment_error')
+                raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, error_el.text.strip())
+            popup = self.page.ele('#goplayShopPopup', timeout=0.2)
+            if not popup or 'display: none' in (popup.attr('style') or ''):
+                return True
+            time.sleep(0.5)
 
         return True
 
