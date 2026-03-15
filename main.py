@@ -179,6 +179,14 @@ async def topup(req: TopUpRequest):
     position = task_queue.qsize()
     logger.info(f"Queued topup for {req.account} | position: {position}")
 
+    if req.url_callback:
+        return {
+            "success": True,
+            "error_code": None,
+            "message": f"Yêu cầu xử lý ngầm đã vào hàng đợi (vị trí thứ {position}). Kết quả sẽ được gửi về callback.",
+            "detail": {"queue_position": position, "url_callback": req.url_callback},
+        }
+
     try:
         result = await asyncio.wait_for(task.future, timeout=TASK_TIMEOUT)
         return result
