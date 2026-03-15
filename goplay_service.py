@@ -70,6 +70,11 @@ class GoPlayService:
         opts.set_pref('profile.default_content_setting_values.notifications', 2)
         opts.set_argument('--disable-notifications')
         opts.set_argument('--disable-features=PasswordLeakDetection,PasswordCheck')
+
+        if os.environ.get('DOCKER_ENV'):
+            opts.set_argument('--no-sandbox')
+            opts.set_argument('--disable-dev-shm-usage')
+            opts.set_argument('--disable-gpu')
         try:
             return ChromiumPage(opts)
         except BrowserConnectError as e:

@@ -1,0 +1,14 @@
+services:
+  goplay-api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - chrome_data:/app/chrome_profile_vlcm
+    restart: always
+    shm_size: '2gb'
+    environment:
+      - DOCKER_ENV=1
+
+volumes:
+  chrome_data:
