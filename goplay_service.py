@@ -54,22 +54,9 @@ class GoPlayService:
 
     _page: ChromiumPage | None = None
     _current_account: str | None = None
-
-    @staticmethod
-    def _get_chrome_profile_dir() -> str:
-        """Use real Chrome User Data (has cookies/trust) with separate profile."""
-        user_data = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data')
-        if os.path.isdir(user_data):
-            return user_data
-        # Fallback to local workspace profile
-        return os.path.join(WORKSPACE_DIR, 'chrome_profile_vlcm')
-
-    _chrome_profile_dir = None  # set in __init__
+    _chrome_profile_dir = os.path.join(WORKSPACE_DIR, 'chrome_profile_vlcm')
 
     def __init__(self):
-        if GoPlayService._chrome_profile_dir is None:
-            GoPlayService._chrome_profile_dir = self._get_chrome_profile_dir()
-            logger.info(f"Chrome profile dir: {GoPlayService._chrome_profile_dir}")
         os.makedirs(self._chrome_profile_dir, exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -83,6 +70,14 @@ class GoPlayService:
         logger.info("Starting new Chrome instance...")
         GoPlayService._page = self._create_browser()
         GoPlayService._current_account = None
+        # Stealth: remove webdriver detection flags
+        try:
+            self.page.run_js('''
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                window.chrome = {runtime: {}};
+            ''')
+        except Exception:
+            pass
 
     def _is_browser_alive(self) -> bool:
         if GoPlayService._page is None:
@@ -103,7 +98,9 @@ class GoPlayService:
         opts.set_argument('--disable-notifications')
         opts.set_argument('--disable-features=PasswordLeakDetection,PasswordCheck')
         opts.set_argument('--disable-save-password-bubble')
-        opts.set_argument('--profile-directory=GoPlay')
+        # Stealth: bypass Cloudflare Turnstile detection
+        opts.set_argument('--disable-blink-features=AutomationControlled')
+        opts.set_argument('--window-size=1280,720')
 
         try:
             return ChromiumPage(opts)
