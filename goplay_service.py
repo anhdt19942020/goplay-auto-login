@@ -96,12 +96,26 @@ class GoPlayService:
         opts.set_user_data_path(self._chrome_profile_dir)
         opts.set_local_port(9222)
         opts.set_argument('--disable-notifications')
-        opts.set_argument('--disable-features=PasswordLeakDetection,PasswordCheck')
+        opts.set_argument('--disable-features=PasswordLeakDetection,PasswordCheck,PasswordManagerOnboarding')
         opts.set_argument('--disable-save-password-bubble')
-        # Stealth: bypass Cloudflare Turnstile detection
         opts.set_argument('--disable-blink-features=AutomationControlled')
         opts.remove_argument('--enable-automation')
         opts.set_argument('--window-size=1280,720')
+
+        # Disable all password manager dialogs (Change Password, Save Password, etc.)
+        opts.set_pref('credentials_enable_service', False)
+        opts.set_pref('profile.password_manager_enabled', False)
+        opts.set_pref('profile.password_manager_leak_detection', False)
+        opts.set_pref('password_manager.password_checkup.enabled', False)
+
+        # Option 2: Route Chrome through residential proxy if configured
+        # Set env var GOPLAY_PROXY=socks5://127.0.0.1:9091 to enable
+        proxy = os.environ.get('GOPLAY_PROXY', '').strip()
+        if proxy:
+            opts.set_argument(f'--proxy-server={proxy}')
+            logger.info(f"Proxy enabled: {proxy}")
+        else:
+            logger.info("Proxy: none (direct connection)")
 
         # Auto-detect Chrome path on Windows
         import shutil
@@ -164,6 +178,41 @@ class GoPlayService:
             pass
 
     # ------------------------------------------------------------------
+    # Chrome dialog dismissal
+    # ------------------------------------------------------------------
+
+    def _dismiss_chrome_dialogs(self):
+        """Dismiss Chrome built-in dialogs (Change Password, Save Password, etc.)"""
+        try:
+            # Google Password Manager "Change your password" popup
+            ok_btn = self.page.ele('xpath://div[contains(text(),"Change your password")]/ancestor::div//button[contains(text(),"OK") or contains(text(),"Close")]', timeout=1)
+            if ok_btn:
+                ok_btn.click()
+                logger.info("Dismissed 'Change your password' dialog")
+                time.sleep(0.5)
+                return True
+        except Exception:
+            pass
+
+        try:
+            # Any dialog with OK/Close button from Chrome UI
+            for sel in [
+                'css:button[jsname="LgbsSe"]',  # Google Material button
+                'xpath://button[text()="OK"]',
+                'xpath://button[text()="Close"]',
+                'css:.password-check-ok-button',
+            ]:
+                btn = self.page.ele(sel, timeout=0.3)
+                if btn and btn.is_displayed():
+                    btn.click()
+                    logger.info(f"Dismissed Chrome dialog via {sel}")
+                    time.sleep(0.3)
+                    return True
+        except Exception:
+            pass
+        return False
+
+    # ------------------------------------------------------------------
     # Cloudflare Turnstile
     # ------------------------------------------------------------------
 
@@ -196,43 +245,65 @@ class GoPlayService:
             logger.info("Auto-verify failed, attempting click strategies...")
 
             def _click_turnstile():
-                """Human-like click on Turnstile checkbox."""
-                iframe = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=3)
-                if not iframe:
-                    logger.debug("Turnstile iframe not found")
+                """Click Turnstile checkbox via iframe-relative coordinates + CDP.
+
+                Turnstile renders the checkbox via CSS/canvas — no accessible DOM elements.
+                We find the iframe element, scroll it into view, re-read its viewport rect
+                AFTER scroll, then compute click coords relative to the iframe position.
+
+                Cloudflare Turnstile widget spec (fixed by CF):
+                  - iframe is always 300px wide × 65px tall
+                  - checkbox circle center: ~40px from left edge, vertically centered
+                  - Safe click zone: iframe.x + [28..45], iframe.y + [height/2 ± 5]
+                """
+                # Re-fetch every call — position may change between Turnstile 1 and 2
+                iframe_el = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=5)
+                if not iframe_el:
+                    logger.info("Turnstile iframe not found")
                     return False
+
                 try:
-                    # Strategy 1: actions.move_to + click (human-like)
-                    x_off = random.randint(20, 40)
-                    y_off = random.randint(20, 40)
+                    # Scroll iframe into view, then wait for layout to settle
                     try:
-                        self.page.actions.move_to(iframe, offset_x=x_off, offset_y=y_off)
-                        time.sleep(random.uniform(0.1, 0.3))
-                        self.page.actions.click()
-                        logger.info(f"Strategy 1: actions click at ({x_off}, {y_off})")
-                        return True
-                    except Exception as e:
-                        logger.debug(f"Strategy 1 failed: {e}")
+                        iframe_el.scroll.to_see()
+                        time.sleep(0.4)
+                    except Exception:
+                        pass
 
-                    # Strategy 2: direct iframe.click()
-                    try:
-                        iframe.click()
-                        logger.info("Strategy 2: direct iframe click")
-                        return True
-                    except Exception as e:
-                        logger.debug(f"Strategy 2 failed: {e}")
+                    # Re-fetch rect AFTER scroll (viewport-relative coords change post-scroll)
+                    iframe_el = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=3)
+                    if not iframe_el:
+                        return False
 
-                    # Strategy 3: click inside iframe body
-                    try:
-                        iframe.ele('tag:body', timeout=1).click()
-                        logger.info("Strategy 3: iframe body click")
-                        return True
-                    except Exception as e:
-                        logger.debug(f"Strategy 3 failed: {e}")
+                    loc = iframe_el.rect.location   # (x, y) top-left of iframe in viewport
+                    size = iframe_el.rect.size       # (width, height) of iframe
 
-                    return False
+                    # Checkbox is always in left portion of the 300x65 widget
+                    # Center of the checkbox circle: ~40px from left, ~half height
+                    click_x = int(loc[0]) + random.randint(28, 45)
+                    click_y = int(loc[1] + size[1] / 2) + random.randint(-4, 4)
+
+                    logger.info(
+                        f"Turnstile iframe rect: top-left=({loc[0]:.0f},{loc[1]:.0f}) "
+                        f"size={size[0]:.0f}x{size[1]:.0f} → click=({click_x},{click_y})"
+                    )
+
+                    # CDP Input events — more trusted by Turnstile than actions.move()
+                    self.page.run_cdp('Input.dispatchMouseEvent',
+                                      type='mouseMoved', x=click_x, y=click_y,
+                                      button='none', modifiers=0)
+                    time.sleep(random.uniform(0.08, 0.18))
+                    self.page.run_cdp('Input.dispatchMouseEvent',
+                                      type='mousePressed', x=click_x, y=click_y,
+                                      button='left', clickCount=1, modifiers=0)
+                    time.sleep(random.uniform(0.06, 0.14))
+                    self.page.run_cdp('Input.dispatchMouseEvent',
+                                      type='mouseReleased', x=click_x, y=click_y,
+                                      button='left', clickCount=1, modifiers=0)
+                    return True
+
                 except Exception as e:
-                    logger.debug(f"Turnstile click error: {e}")
+                    logger.warning(f"Turnstile click error: {e}")
                     return False
 
             # First click attempt
@@ -363,6 +434,10 @@ class GoPlayService:
         self.page.ele('#password').input(password)
         self._handle_turnstile()
         self._click(self.page.ele('#btn-login-pass'))
+
+        # Dismiss Chrome Password Manager dialogs if they appear
+        time.sleep(1)
+        self._dismiss_chrome_dialogs()
 
         self._wait_login_result()
         GoPlayService._current_account = account
