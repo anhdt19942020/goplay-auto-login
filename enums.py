@@ -98,6 +98,37 @@ class CrossfirePackage(Enum):
         return f'css:.goPlay-package[data-packid="{self.pack_id}"]'
 
 
+class DreamyPackage(Enum):
+    """Dreamy Café - nạp bao nhiêu nhận bấy nhiêu"""
+    DEFAULT = (0, "Nạp thẻ Dreamy Café", 0, 0, 0)
+
+    def __init__(self, pack_id, pack_name, go, price, pack_type):
+        self.pack_id = pack_id
+        self.pack_name = pack_name
+        self.go = go
+        self.price = price
+        self.pack_type = pack_type
+
+
+class VPTPackage(Enum):
+    """Vua Pháp Thuật - nạp bao nhiêu nhận bấy nhiêu"""
+    DEFAULT = (0, "Nạp thẻ Vua Pháp Thuật", 0, 0, 0)
+
+    def __init__(self, pack_id, pack_name, go, price, pack_type):
+        self.pack_id = pack_id
+        self.pack_name = pack_name
+        self.go = go
+        self.price = price
+        self.pack_type = pack_type
+
+
+GAME_PACKAGE_MAP: dict[GameCode, type] = {
+    GameCode.CROSSFIRE: CrossfirePackage,
+    GameCode.DREAMY_CAFE: DreamyPackage,
+    GameCode.VUA_PHAP_THUAT: VPTPackage,
+}
+
+
 class PaymentMethod(str, Enum):
     QR = "BANKTRANFER"
     THE_VCOIN = "CARD-VCOIN"

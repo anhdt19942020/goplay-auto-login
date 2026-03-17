@@ -7,7 +7,7 @@ from fastapi import FastAPI, APIRouter
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
-from enums import CrossfirePackage, GameCode, GoPlayErrorCode
+from enums import CrossfirePackage, DreamyPackage, VPTPackage, GameCode, GoPlayErrorCode, GAME_PACKAGE_MAP
 from goplay_service import GoPlayService
 from telegram_service import notify_topup, call_callback
 
@@ -131,7 +131,15 @@ class TopUpRequest(BaseModel):
                     "package": "GO_100",
                     "card_serial": "123456789",
                     "card_code": "987654321",
-                }
+                },
+                {
+                    "game": "DREAMY",
+                    "account": "username",
+                    "password": "password",
+                    "package": "DEFAULT",
+                    "card_serial": "123456789",
+                    "card_code": "987654321",
+                },
             ]
         }
     }
@@ -145,11 +153,13 @@ def health():
 @router.get("/games")
 def list_games():
     games = [{"code": g.value, "name": g.name} for g in GameCode]
-    packages = [
-        {"key": p.name, "name": p.pack_name, "go": p.go, "price": p.price}
-        for p in CrossfirePackage
-    ]
-    return {"games": games, "packages_crossfire": packages}
+    packages_by_game = {}
+    for game_code, pkg_class in GAME_PACKAGE_MAP.items():
+        packages_by_game[game_code.value] = [
+            {"key": p.name, "name": p.pack_name, "go": p.go, "price": p.price}
+            for p in pkg_class
+        ]
+    return {"games": games, "packages": packages_by_game}
 
 
 @router.get("/queue-status")
@@ -176,10 +186,18 @@ async def topup(req: TopUpRequest):
             "detail": None,
         }
 
+    pkg_class = GAME_PACKAGE_MAP.get(game)
+    if not pkg_class:
+        return {
+            "success": False,
+            "error_code": GoPlayErrorCode.INVALID_GAME.value,
+            "message": f"Game {req.game} chưa được hỗ trợ packages",
+            "detail": None,
+        }
     try:
-        package = CrossfirePackage[req.package]
+        package = pkg_class[req.package]
     except KeyError:
-        valid = [p.name for p in CrossfirePackage]
+        valid = [p.name for p in pkg_class]
         return {
             "success": False,
             "error_code": GoPlayErrorCode.INVALID_PACKAGE.value,
