@@ -1,0 +1,8 @@
+$key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCPaM3cpvEnjg4yUAZ5QjEoBgF2gZCMSLot6bwx3cM4pG/O8+B8L7vgEW5+pjAxm8DsFYFTdf871rnD0HYWxLC9fBMSKKuUqiMjrYcME0qmysNmcefRQPf6BUqn2vvveQvst1N79LGx/DEwJzJKRZz64ZCWuiCD5G28UTOhvWRN/L4ABvV+t8uIhMX8RPayczMJaBRrmtT8eGQslXHRQdV0HIizLKSloIKEQ1lmyu7rdaFJyqP2auI4eKNo8Xb0arLBx/MypvtYgLvlmIXiwsd3r7V7D2JBnrt48TBgxoVXV3z69gLgfBKTBBBCJtteQ5fPkxea2wbvca0eO16I5OzK1fbYxMKtdzdelkZj4Y0UW9EQEg7VnfevK1vy1hhQ2fxS+ULB8BhMHOcZjpvfhuJrhRG+/iH/2ZO71eRvfHjxqM8T6tmWBW9vpbbc0Ae8L+npkpxl2df+q51H0vjZnQUTHSIlNP3DJz5mQwyxJFiRmlinp6rIj1hnAUkOqllUnBIot1ygur4KvjdH9txBR9oOXcuKRUKORidjruUj/Asv9vLOnZn86WK69ELMOFk2KJ0cgFJGonDs4lLBSbjQRCrWDlcB8BfA1HZ89LjuSWhEgFqPNPDCryui02mMBcIt8xcugIJABbG16QQ7mHs0oidNaumh3HzZHIiVhA+sLMR2Uw== your_email@example.com"
+$AdminKeyFile = "$env:ProgramData\ssh\administrators_authorized_keys"
+New-Item -ItemType Directory -Force -Path "$env:ProgramData\ssh" | Out-Null
+$key | Out-File -FilePath $AdminKeyFile -Encoding ascii -Append
+icacls.exe $AdminKeyFile /inheritance:r
+icacls.exe $AdminKeyFile /grant "SYSTEM:(F)"
+icacls.exe $AdminKeyFile /grant "BUILTIN\Administrators:(F)"
+Write-Output "Done configuring Admin keys"

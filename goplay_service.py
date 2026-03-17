@@ -103,6 +103,19 @@ class GoPlayService:
         opts.remove_argument('--enable-automation')
         opts.set_argument('--window-size=1280,720')
 
+        # Auto-detect Chrome path on Windows
+        import shutil
+        if not shutil.which(opts.browser_path or 'chrome'):
+            for candidate in [
+                os.path.join(os.environ.get('ProgramFiles', ''), 'Google', 'Chrome', 'Application', 'chrome.exe'),
+                os.path.join(os.environ.get('ProgramFiles(x86)', ''), 'Google', 'Chrome', 'Application', 'chrome.exe'),
+                os.path.join(os.environ.get('LocalAppData', ''), 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            ]:
+                if os.path.isfile(candidate):
+                    opts.set_browser_path(candidate)
+                    logger.info(f"Chrome found at: {candidate}")
+                    break
+
         try:
             return ChromiumPage(opts)
         except BrowserConnectError as e:
@@ -156,11 +169,10 @@ class GoPlayService:
 
     def _handle_turnstile(self):
         """Click Cloudflare Turnstile checkbox if present."""
+        import random
         try:
-            # Short wait for any turnstile response input to exist
-            response_input = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=3)
+            response_input = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=5)
             if not response_input:
-                logger.debug("No Turnstile response input found, skipping")
                 return
 
             val = response_input.attr('value')
@@ -168,26 +180,66 @@ class GoPlayService:
                 logger.info(f"Turnstile already verified (token: {val[:20]}...)")
                 return
 
-            logger.info("Cloudflare Turnstile detected. Waiting for verification...")
+            logger.info("Cloudflare Turnstile detected. Waiting for auto-verify...")
 
-            # Scroll near the response input (it corresponds to the turnstile position)
-            try:
-                response_input.scroll.to_see()
-                time.sleep(0.5)
-            except Exception:
-                pass
-
-            # Try clicking the iframe body directly
-            iframe = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=2)
-            if iframe:
+            # Wait 3s for auto-verify first (works on clean IPs)
+            for _ in range(6):
                 try:
-                    iframe.ele('tag:body', timeout=2).click()
-                    logger.info("Clicked Turnstile iframe body")
+                    val = response_input.attr('value')
+                    if val:
+                        logger.info(f"Turnstile auto-verified (token: {val[:20]}...)")
+                        return
                 except Exception:
-                    logger.debug("iframe body click failed")
+                    pass
+                time.sleep(0.5)
 
-            # Wait for Turnstile to complete verification — up to 15s
-            for i in range(30):
+            logger.info("Auto-verify failed, attempting click strategies...")
+
+            def _click_turnstile():
+                """Human-like click on Turnstile checkbox."""
+                iframe = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=3)
+                if not iframe:
+                    logger.debug("Turnstile iframe not found")
+                    return False
+                try:
+                    # Strategy 1: actions.move_to + click (human-like)
+                    x_off = random.randint(20, 40)
+                    y_off = random.randint(20, 40)
+                    try:
+                        self.page.actions.move_to(iframe, offset_x=x_off, offset_y=y_off)
+                        time.sleep(random.uniform(0.1, 0.3))
+                        self.page.actions.click()
+                        logger.info(f"Strategy 1: actions click at ({x_off}, {y_off})")
+                        return True
+                    except Exception as e:
+                        logger.debug(f"Strategy 1 failed: {e}")
+
+                    # Strategy 2: direct iframe.click()
+                    try:
+                        iframe.click()
+                        logger.info("Strategy 2: direct iframe click")
+                        return True
+                    except Exception as e:
+                        logger.debug(f"Strategy 2 failed: {e}")
+
+                    # Strategy 3: click inside iframe body
+                    try:
+                        iframe.ele('tag:body', timeout=1).click()
+                        logger.info("Strategy 3: iframe body click")
+                        return True
+                    except Exception as e:
+                        logger.debug(f"Strategy 3 failed: {e}")
+
+                    return False
+                except Exception as e:
+                    logger.debug(f"Turnstile click error: {e}")
+                    return False
+
+            # First click attempt
+            _click_turnstile()
+
+            # Wait up to 30s total for verification
+            for i in range(54):  # 27s after the initial 3s auto-verify wait = 30s total
                 try:
                     val = response_input.attr('value')
                     if val:
@@ -196,19 +248,15 @@ class GoPlayService:
                 except Exception:
                     pass
 
-                # Retry click every 3s
-                if i > 0 and i % 6 == 0:
-                    logger.info(f"Turnstile not verified after {i*0.5:.0f}s, retrying...")
-                    try:
-                        iframe = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=1)
-                        if iframe:
-                            iframe.ele('tag:body', timeout=1).click()
-                    except Exception:
-                        pass
+                # Retry click every 5s with different strategy
+                if i > 0 and i % 10 == 0:
+                    elapsed = 3 + i * 0.5
+                    logger.info(f"Turnstile not verified after {elapsed:.0f}s, retrying click...")
+                    _click_turnstile()
 
                 time.sleep(0.5)
 
-            logger.warning("Turnstile NOT verified after 15s")
+            logger.warning("Turnstile NOT verified after 30s")
         except Exception as e:
             logger.warning(f"Turnstile handling error: {e}")
 
@@ -303,7 +351,7 @@ class GoPlayService:
         self._handle_turnstile()
         self._click(self.page.ele('#btn-submit-username'))
 
-        for _ in range(20):  # max 10s
+        for _ in range(60):  # max 30s (server Turnstile may take longer)
             if self.page.ele('#password', timeout=0.3):
                 break
             error_el = self.page.ele('css:.input-error .text-danger', timeout=0.2)
