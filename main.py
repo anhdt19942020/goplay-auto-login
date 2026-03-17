@@ -94,6 +94,15 @@ async def queue_worker():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     worker = asyncio.create_task(queue_worker())
+    # Pre-warm: start Chrome browser so first request is faster
+    def _prewarm():
+        try:
+            svc = GoPlayService()
+            svc._ensure_browser()
+            logger.info("Browser pre-warmed successfully")
+        except Exception as e:
+            logger.warning(f"Browser pre-warm failed (will retry on first request): {e}")
+    asyncio.get_event_loop().run_in_executor(None, _prewarm)
     yield
     worker.cancel()
 

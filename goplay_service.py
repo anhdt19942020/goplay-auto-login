@@ -189,7 +189,7 @@ class GoPlayService:
             if ok_btn:
                 ok_btn.click()
                 logger.info("Dismissed 'Change your password' dialog")
-                time.sleep(0.5)
+                time.sleep(0.2)
                 return True
         except Exception:
             pass
@@ -206,7 +206,7 @@ class GoPlayService:
                 if btn and btn.is_displayed():
                     btn.click()
                     logger.info(f"Dismissed Chrome dialog via {sel}")
-                    time.sleep(0.3)
+                    time.sleep(0.15)
                     return True
         except Exception:
             pass
@@ -231,8 +231,8 @@ class GoPlayService:
 
             logger.info("Cloudflare Turnstile detected. Waiting for auto-verify...")
 
-            # Wait 3s for auto-verify first (works on clean IPs)
-            for _ in range(6):
+            # Wait 1s for auto-verify first (server rarely auto-verifies)
+            for _ in range(2):
                 try:
                     val = response_input.attr('value')
                     if val:
@@ -339,7 +339,7 @@ class GoPlayService:
             _click_turnstile()
 
             # Wait up to 30s total for verification
-            for i in range(54):  # 27s after the initial 3s auto-verify wait = 30s total
+            for i in range(58):  # 29s after the initial 1s auto-verify wait = 30s total
                 try:
                     val = response_input.attr('value')
                     if val:
@@ -387,7 +387,7 @@ class GoPlayService:
             ok_btn = self.page.ele('#goplayPopupOk', timeout=1)
             if ok_btn:
                 self._click(ok_btn)
-                time.sleep(0.3)
+                time.sleep(0.15)
             return code
         except Exception:
             return None
@@ -434,7 +434,7 @@ class GoPlayService:
             self._logout()
 
         self.page.get('https://goplay.vn/')
-        self.page.wait.ele_displayed('css:.btn-auth.box-login', timeout=8)
+        self.page.wait.ele_displayed('css:.btn-auth.box-login', timeout=5)
 
         # Double-check: maybe already logged in (cookie from profile)
         if self.page.ele('css:.userInfo', timeout=1):
@@ -443,7 +443,7 @@ class GoPlayService:
 
         logger.info(f"Logging in as {account}...")
         self._click(self.page.ele('css:.btn-auth.box-login'))
-        self.page.wait.ele_displayed('css:a.btn-auth.btn-login', timeout=3)
+        self.page.wait.ele_displayed('css:a.btn-auth.btn-login', timeout=2)
 
         self._click(self.page.ele('css:a.btn-auth.btn-login'))
         self.page.wait.ele_displayed('css:.vtc-user-login')
@@ -465,7 +465,7 @@ class GoPlayService:
         self._click(self.page.ele('#btn-login-pass'))
 
         # Dismiss Chrome Password Manager dialogs if they appear
-        time.sleep(1)
+        time.sleep(0.3)
         self._dismiss_chrome_dialogs()
 
         self._wait_login_result()
@@ -494,7 +494,7 @@ class GoPlayService:
 
     def _select_payment(self, method: PaymentMethod):
         selector = f'css:.payment-item[data-method="{method.value}"]:not(.is-disabled)'
-        el = self.page.ele(selector, timeout=10)
+        el = self.page.ele(selector, timeout=5)
 
         if not el:
             logger.warning("Payment item still disabled, trying click anyway")
@@ -504,7 +504,7 @@ class GoPlayService:
                 raise GoPlayError(GoPlayErrorCode.PAYMENT_NOT_FOUND, f"Không tìm thấy: {method.value}")
 
         self._click(el)
-        time.sleep(0.3)
+        time.sleep(0.15)
         logger.info(f"Payment: {method.name}")
 
     def _click_continue(self, game: GameCode):
@@ -545,7 +545,7 @@ class GoPlayService:
             ok_btn = self.page.ele('#goplayPopupOk', timeout=1)
             if ok_btn:
                 self._click(ok_btn)
-                time.sleep(0.3)
+                time.sleep(0.15)
 
             return {'success': is_success, 'title': title, 'message': msg}
         except Exception:
@@ -574,7 +574,7 @@ class GoPlayService:
         code_input = self.page.ele('#card-code')
         code_input.clear()
         code_input.input(card_code)
-        time.sleep(0.3)
+        time.sleep(0.15)
 
         self._click(self.page.ele('#id-shop-popup-ok-btn'))
         logger.info("Card submitted, waiting for result...")
