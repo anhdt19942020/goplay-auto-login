@@ -100,6 +100,7 @@ class GoPlayService:
         opts.set_argument('--disable-save-password-bubble')
         # Stealth: bypass Cloudflare Turnstile detection
         opts.set_argument('--disable-blink-features=AutomationControlled')
+        opts.remove_argument('--enable-automation')
         opts.set_argument('--window-size=1280,720')
 
         try:
