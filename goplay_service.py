@@ -216,11 +216,11 @@ class GoPlayService:
     # Cloudflare Turnstile
     # ------------------------------------------------------------------
 
-    def _handle_turnstile(self):
+    def _handle_turnstile(self, detect_timeout: int = 5):
         """Click Cloudflare Turnstile checkbox if present."""
         import random
         try:
-            response_input = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=5)
+            response_input = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=detect_timeout)
             if not response_input:
                 return
 
@@ -625,9 +625,9 @@ class GoPlayService:
             self._login(account, password)
             self._navigate_to_game(game)
             self._select_package(package)
-            self._handle_turnstile()
+            self._handle_turnstile(detect_timeout=2)
             self._select_payment(PaymentMethod.THE_VCOIN)
-            self._handle_turnstile()
+            self._handle_turnstile(detect_timeout=2)
             self._click_continue(game)
             result = self._fill_card_and_submit(card_serial, card_code)
 
