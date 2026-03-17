@@ -156,41 +156,57 @@ def browser_login(page: ChromiumPage, account: str, password: str) -> dict:
 # STEP 2: HTTP — Extract CSRF from Store Page
 # ═══════════════════════════════════════════
 
-def extract_csrf(client: httpx.Client, game: str) -> tuple[str, str]:
-    """GET store page → extract CSRF token. Returns (csrf_token, page_url)."""
+def extract_csrf_and_turnstile(page: ChromiumPage, game: str) -> tuple[str, str, str]:
+    """Navigate browser to store, extract CSRF + Turnstile token.
+    Returns (csrf_token, turnstile_token, page_url)."""
     logger.info("=" * 50)
-    logger.info(f"STEP 2: HTTP GET store page — /cua-hang/{game}")
+    logger.info(f"STEP 2: Browser GET store page — /cua-hang/{game}")
     logger.info("=" * 50)
 
-    url = f"https://goplay.vn/cua-hang/{game}"
-    resp = client.get(url, follow_redirects=True)
-    logger.info(f"  Status: {resp.status_code}")
-    logger.info(f"  Final URL: {resp.url}")
+    page.get(f"https://goplay.vn/cua-hang/{game}", timeout=30)
+    time.sleep(3)
+    page_url = page.url
+    logger.info(f"  URL: {page_url}")
 
-    if resp.status_code != 200:
-        raise RuntimeError(f"Store page returned {resp.status_code}")
-
-    # Extract CSRF token
-    html = resp.text
-    match = re.search(
-        r'<input[^>]*name="__RequestVerificationToken"[^>]*value="([^"]+)"',
-        html,
-    )
-    if not match:
-        # Try alternative pattern
-        match = re.search(r'__RequestVerificationToken.*?value="([^"]+)"', html)
-
-    if not match:
+    # Extract CSRF token from DOM
+    csrf_el = page.ele('css:input[name="__RequestVerificationToken"]', timeout=5)
+    csrf_token = csrf_el.attr("value") if csrf_el else None
+    if not csrf_token:
         raise RuntimeError("CSRF token not found on store page!")
+    logger.info(f"  ✅ CSRF: {csrf_token[:40]}...")
 
-    csrf = match.group(1)
-    logger.info(f"  ✅ CSRF: {csrf[:40]}...")
+    # Extract Turnstile token — trigger render and wait
+    logger.info("  Waiting for Turnstile on store page...")
+    turnstile_token = wait_turnstile(page, timeout=30)
 
-    # Also extract antiforgery cookie if present in response
-    for name, value in resp.cookies.items():
-        logger.info(f"  New cookie from store: {name} = {str(value)[:40]}...")
+    # If no auto-solve, try triggering TurnstileHelper.renderEnableVerify
+    if not turnstile_token:
+        logger.info("  Trying TurnstileHelper.renderEnableVerify()...")
+        try:
+            page.run_js("""
+                if (typeof TurnstileHelper !== 'undefined' && typeof TurnstileHelper.renderEnableVerify === 'function') {
+                    TurnstileHelper.renderEnableVerify(function(token) {
+                        window.__poc_turnstile = token;
+                    }, { timeoutMs: 30000 });
+                }
+            """)
+            # Wait for callback
+            for _ in range(15):
+                time.sleep(2)
+                tt = page.run_js("return window.__poc_turnstile || null;")
+                if tt:
+                    turnstile_token = tt
+                    break
+        except Exception as e:
+            logger.warning(f"  TurnstileHelper call failed: {e}")
 
-    return csrf, str(resp.url)
+    if turnstile_token:
+        logger.info(f"  ✅ Turnstile: {turnstile_token[:40]}...")
+    else:
+        logger.warning("  ⚠️ No Turnstile token obtained — will try empty")
+        turnstile_token = ""
+
+    return csrf_token, turnstile_token, page_url
 
 
 # ═══════════════════════════════════════════
@@ -204,6 +220,7 @@ def http_card_topup(
     serial: str,
     code: str,
     method: str = "CARD-VCOIN",
+    captcha_token: str = "",
 ) -> dict:
     """POST ?handler=Card to topup via HTTP"""
     logger.info("=" * 50)
@@ -220,7 +237,7 @@ def http_card_topup(
         "method": method,
         "serial": serial,
         "code": code,
-        "captchaToken": "",
+        "captchaToken": captcha_token,
     }
 
     headers = {
@@ -303,8 +320,14 @@ def main():
             follow_redirects=True,
         )
 
-        # STEP 2: Extract CSRF from store page
-        csrf_token, page_url = extract_csrf(client, args.game)
+        # STEP 2: Navigate browser to store + extract CSRF + Turnstile
+        csrf_token, turnstile_token, page_url = extract_csrf_and_turnstile(page, args.game)
+
+        # Also grab fresh cookies from browser after store page
+        store_cdp_cookies = page.run_cdp("Network.getAllCookies").get("cookies", [])
+        for c in store_cdp_cookies:
+            if "goplay" in c.get("domain", ""):
+                client.cookies.set(c["name"], c["value"], domain=c.get("domain", ""))
 
         # STEP 3: HTTP POST — Card Topup
         if args.dry_run:
@@ -312,13 +335,15 @@ def main():
             logger.info("DRY RUN — skipping actual topup POST")
             logger.info("=" * 50)
             logger.info(f"  Would POST to: {page_url}?handler=Card")
+            logger.info(f"  Turnstile: {'YES' if turnstile_token else 'NO'}")
             logger.info(f"  Payload: serial={args.serial}, code={args.code}, method={args.method}")
             logger.info("  ✅ Dry run complete — all prerequisites verified!")
-            result = {"dry_run": True, "csrf": csrf_token[:20], "cookies_count": len(cookies)}
+            result = {"dry_run": True, "csrf": csrf_token[:20], "turnstile": bool(turnstile_token), "cookies_count": len(cookies)}
         else:
             result = http_card_topup(
                 client, page_url, csrf_token,
                 serial=args.serial, code=args.code, method=args.method,
+                captcha_token=turnstile_token,
             )
 
         # Save result
