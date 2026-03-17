@@ -3,6 +3,7 @@ import re
 import time
 import logging
 
+import httpx
 from DrissionPage import ChromiumOptions, ChromiumPage
 from DrissionPage.errors import BrowserConnectError
 from enums import CrossfirePackage, GameCode, GoPlayErrorCode, PaymentMethod
@@ -442,101 +443,92 @@ class GoPlayService:
         GoPlayService._current_account = account
 
     # ------------------------------------------------------------------
-    # Shopping flow
+    # Shopping flow (Hybrid: browser for navigation + HTTP for topup)
     # ------------------------------------------------------------------
 
     def _navigate_to_game(self, game: GameCode):
         self.page.get(f'https://goplay.vn/cua-hang/{game.value}')
         self.page.wait.ele_displayed('css:.goPlay-package', timeout=10)
-        # Detect session expiry: GoPlay redirects to login page
         if 'oauth/dang-nhap' in self.page.url or 'signin' in self.page.url:
             logger.warning("Session expired (redirected to login page), will re-login")
             GoPlayService._current_account = None
             raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT, "SESSION_EXPIRED")
         logger.info(f"Game page: {self.page.url}")
 
-    def _select_package(self, package: CrossfirePackage):
-        el = self.page.ele(package.selector, timeout=5)
-        if not el:
-            self._dump_debug('select_package_fail')
-            raise GoPlayError(GoPlayErrorCode.PACKAGE_NOT_FOUND, f"Không tìm thấy gói: {package.pack_name}")
+    def _extract_cookies_for_http(self) -> dict:
+        """Extract all GoPlay cookies from browser via CDP for httpx."""
+        cdp_cookies = self.page.run_cdp("Network.getAllCookies").get("cookies", [])
+        cookies = {}
+        for c in cdp_cookies:
+            if "goplay" in c.get("domain", ""):
+                cookies[c["name"]] = c["value"]
+        logger.info(f"Extracted {len(cookies)} cookies for HTTP client")
+        return cookies
 
-        self._click(el)
-        logger.info(f"Selected: {package.pack_name}")
+    def _get_store_csrf_token(self) -> str:
+        """Extract CSRF token from current store page DOM."""
+        csrf_el = self.page.ele('css:input[name="__RequestVerificationToken"]', timeout=5)
+        if not csrf_el:
+            raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, "CSRF token not found on store page")
+        token = csrf_el.attr("value")
+        if not token:
+            raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, "CSRF token is empty")
+        logger.info(f"CSRF token: {token[:30]}...")
+        return token
 
-        self.page.wait.ele_displayed('css:[data-field="payment-method"]', timeout=5)
-        logger.info("Payment section visible")
-
-    def _select_payment(self, method: PaymentMethod):
-        selector = f'css:.payment-item[data-method="{method.value}"]:not(.is-disabled)'
-        el = self.page.ele(selector, timeout=5)
-
-        if not el:
-            logger.warning("Payment item still disabled, trying click anyway")
-            el = self.page.ele(method.selector, timeout=3)
-            if not el:
-                self._dump_debug('select_payment_fail')
-                raise GoPlayError(GoPlayErrorCode.PAYMENT_NOT_FOUND, f"Không tìm thấy: {method.value}")
-
-        self._click(el)
-        time.sleep(0.15)
-        logger.info(f"Payment: {method.name}")
-
-    def _click_continue(self, game: GameCode):
-        btn = self.page.ele(f'css:.btn-payment-game-{game.value}', timeout=5)
-        if not btn:
-            self._dump_debug('click_continue_fail')
-            raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, "Không tìm thấy nút Tiếp tục")
-
-        self._click(btn)
-        self.page.wait.ele_displayed('#goplayShopPopup', timeout=8)
-        logger.info("Clicked continue")
-
-    def _check_result_popup(self) -> dict | None:
-        """Check if goplayPopup is visible, return parsed result or None"""
+    def _get_store_turnstile_token(self) -> str:
+        """Trigger Turnstile on store page and wait for token."""
+        # Try auto-detected token first (sometimes already solved)
         try:
-            popup = self.page.ele('#goplayPopup', timeout=0.2)
-            if not popup:
-                return None
-            style = popup.attr('style') or ''
-            if 'display: none' in style or 'display:none' in style:
-                return None
-            if 'display' not in style:
-                return None
-
-            title_el = self.page.ele('#goplayPopupTitle', timeout=0.2)
-            msg_el = self.page.ele('#goplayPopupMsg', timeout=0.2)
-            if not title_el or not msg_el:
-                return None
-            title = title_el.text.strip() if title_el.text else ''
-            msg = msg_el.text.strip() if msg_el.text else ''
-            if not title and not msg:
-                return None
-
-            img_el = self.page.ele('#goplayPopupImg', timeout=0.2)
-            img_src = img_el.attr('src') if img_el else ''
-            is_success = 'success' in (img_src or '') or 'thành công' in title.lower()
-
-            ok_btn = self.page.ele('#goplayPopupOk', timeout=1)
-            if ok_btn:
-                self._click(ok_btn)
-                time.sleep(0.15)
-
-            return {'success': is_success, 'title': title, 'message': msg}
+            inp = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=2)
+            if inp:
+                val = inp.attr('value')
+                if val and len(val) > 10:
+                    logger.info(f"Turnstile already solved: {val[:30]}...")
+                    return val
         except Exception:
-            return None
+            pass
 
-    def _parse_topup_result(self, msg: str) -> dict:
-        """Parse GO received and balance from popup message"""
-        go_match = re.search(r'nhận được\s*(\d+)\s*GO', msg, re.IGNORECASE)
-        balance_match = re.search(r'hiện tại[:\s]*(\d+)\s*GO', msg, re.IGNORECASE)
-        return {
-            'go_received': int(go_match.group(1)) if go_match else None,
-            'balance': int(balance_match.group(1)) if balance_match else None,
-        }
+        # Trigger TurnstileHelper.renderEnableVerify() via JS
+        logger.info("Triggering TurnstileHelper.renderEnableVerify()...")
+        try:
+            self.page.run_js("""
+                if (typeof TurnstileHelper !== 'undefined' && typeof TurnstileHelper.renderEnableVerify === 'function') {
+                    TurnstileHelper.renderEnableVerify(function(token) {
+                        window.__topup_turnstile = token;
+                    }, { timeoutMs: 30000 });
+                }
+            """)
+        except Exception as e:
+            logger.warning(f"TurnstileHelper call failed: {e}")
 
-    def _fill_card_and_submit(self, card_serial: str, card_code: str):
-        # Pre-validate card info (GoPlay requires 8-32 chars)
+        # Poll for the token
+        for i in range(20):  # 20 × 2s = 40s max
+            time.sleep(2)
+            try:
+                token = self.page.run_js("return window.__topup_turnstile || null;")
+                if token:
+                    logger.info(f"Turnstile solved: {token[:30]}...")
+                    return token
+            except Exception:
+                pass
+            # Also check the input field
+            try:
+                inp = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=0.3)
+                if inp:
+                    val = inp.attr('value')
+                    if val and len(val) > 10:
+                        logger.info(f"Turnstile solved (input): {val[:30]}...")
+                        return val
+            except Exception:
+                pass
+
+        logger.warning("Turnstile token not obtained after 40s, proceeding with empty")
+        return ""
+
+    def _http_card_topup(self, game: GameCode, card_serial: str, card_code: str, method: str = "CARD-VCOIN") -> dict:
+        """Submit card topup via HTTP POST instead of browser clicks."""
+        # Validate card info
         errors = []
         if not (8 <= len(card_serial) <= 32):
             errors.append(f"Serial không hợp lệ (8-32 ký tự, hiện {len(card_serial)})")
@@ -545,63 +537,74 @@ class GoPlayService:
         if errors:
             raise GoPlayError(GoPlayErrorCode.INVALID_CARD_INFO, "; ".join(errors))
 
-        self._handle_turnstile()
-        serial_input = self.page.ele('#card-serial', timeout=15)
+        # Extract prerequisites from browser
+        cookies = self._extract_cookies_for_http()
+        csrf_token = self._get_store_csrf_token()
+        turnstile_token = self._get_store_turnstile_token()
 
-        if not serial_input:
-            self._dump_debug('card_popup_fail')
-            raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, "Popup nhập thẻ không xuất hiện")
+        # Build URL and payload
+        page_url = self.page.url
+        api_url = page_url + ("&" if "?" in page_url else "?") + "handler=Card"
 
-        serial_input.clear()
-        serial_input.input(card_serial)
+        payload = {
+            "method": method,
+            "serial": card_serial,
+            "code": card_code,
+            "captchaToken": turnstile_token,
+        }
 
-        code_input = self.page.ele('#card-code')
-        code_input.clear()
-        code_input.input(card_code)
-        time.sleep(0.15)
+        headers = {
+            "Content-Type": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "RequestVerificationToken": csrf_token,
+            "Accept": "application/json",
+            "Origin": "https://goplay.vn",
+            "Referer": page_url,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        }
 
-        self._click(self.page.ele('#id-shop-popup-ok-btn'))
-        logger.info("Card submitted, waiting for result...")
+        logger.info(f"HTTP POST {api_url}")
+        logger.info(f"  serial={card_serial[:4]}****{card_serial[-4:]}" if len(card_serial) > 8 else f"  serial={card_serial}")
 
-        for _ in range(60):  # max 30s
-            # Check specific field validation errors first
-            field_errors = []
-            for sel in ['css:#card-serial ~ .text-danger', 'css:#card-code ~ .text-danger',
-                        'css:.card-serial-error', 'css:.card-code-error',
-                        'css:.input-error .text-danger']:
-                try:
-                    err_el = self.page.ele(sel, timeout=0.1)
-                    if err_el and err_el.text.strip():
-                        field_errors.append(err_el.text.strip())
-                except Exception:
-                    pass
+        try:
+            with httpx.Client(cookies=cookies, timeout=30, follow_redirects=True) as client:
+                resp = client.post(api_url, json=payload, headers=headers)
+        except httpx.TimeoutException:
+            raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, "HTTP topup request timeout (30s)")
+        except httpx.HTTPError as e:
+            raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, f"HTTP error: {e}")
 
-            error_el = self.page.ele('#id-shop-popup-error', timeout=0.2)
-            if error_el and error_el.text.strip():
-                detail = "; ".join(field_errors) if field_errors else error_el.text.strip()
-                self._dump_debug('payment_error')
-                raise GoPlayError(GoPlayErrorCode.INVALID_CARD_INFO, detail)
+        logger.info(f"  HTTP {resp.status_code} | Content-Type: {resp.headers.get('content-type', 'N/A')}")
 
-            result = self._check_result_popup()
-            if result:
-                if result['success']:
-                    parsed = self._parse_topup_result(result['message'])
-                    logger.info(f"Top-up success: {result['message']}")
-                    return {
-                        'success': True,
-                        'title': result['title'],
-                        'message': result['message'],
-                        'go_received': parsed['go_received'],
-                        'balance': parsed['balance'],
-                    }
-                else:
-                    self._dump_debug('payment_error')
-                    raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, result['message'] or result['title'])
+        if resp.status_code != 200:
+            raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, f"HTTP {resp.status_code}: {resp.text[:200]}")
 
-            time.sleep(0.5)
+        try:
+            data = resp.json()
+        except Exception:
+            raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, f"Non-JSON response: {resp.text[:200]}")
 
-        self._dump_debug('card_submit_timeout')
-        raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, "Không nhận được kết quả nạp thẻ sau 30s")
+        if data.get("success"):
+            msg = data.get("message", "Nạp thẻ thành công")
+            topup_data = data.get("data", {})
+            go_received = topup_data.get("Topup")
+            balance = topup_data.get("totalBalance")
+            # Also try parsing from message
+            if not go_received:
+                go_match = re.search(r'nhận được\s*(\d+)\s*GO', msg, re.IGNORECASE)
+                go_received = int(go_match.group(1)) if go_match else None
+            logger.info(f"🎉 Topup OK: {msg} | +{go_received} GO | Balance: {balance}")
+            return {
+                'success': True,
+                'message': msg,
+                'go_received': go_received,
+                'balance': balance,
+                'log_id': topup_data.get('logId'),
+            }
+        else:
+            error_msg = data.get("message", "Lỗi không xác định")
+            logger.warning(f"❌ Topup failed: {error_msg}")
+            raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, error_msg)
 
     # ------------------------------------------------------------------
     # Public API
@@ -631,12 +634,8 @@ class GoPlayService:
                 else:
                     raise
 
-            self._select_package(package)
-            self._handle_turnstile(detect_timeout=2)
-            self._select_payment(PaymentMethod.THE_VCOIN)
-            self._handle_turnstile(detect_timeout=2)
-            self._click_continue(game)
-            result = self._fill_card_and_submit(card_serial, card_code)
+            # HTTP card topup (replaces browser click flow)
+            result = self._http_card_topup(game, card_serial, card_code)
 
             return {
                 "success": True,
@@ -649,12 +648,12 @@ class GoPlayService:
                     "go": package.go,
                     "go_received": result.get('go_received'),
                     "balance": result.get('balance'),
+                    "log_id": result.get('log_id'),
                 },
             }
         except GoPlayError as e:
             logger.error(f"GoPlay error [{e.code.value}]: {e.detail}")
             self._dump_debug('topup_error')
-            # Browser-level errors → kill browser to reset
             if e.code == GoPlayErrorCode.BROWSER_ERROR:
                 self._kill_browser()
             return {
