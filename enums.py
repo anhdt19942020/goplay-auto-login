@@ -19,6 +19,7 @@ class GoPlayErrorCode(str, Enum):
     PACKAGE_NOT_FOUND = "PACKAGE_NOT_FOUND"
     PAYMENT_NOT_FOUND = "PAYMENT_NOT_FOUND"
     PAYMENT_ERROR = "PAYMENT_ERROR"
+    INVALID_CARD_INFO = "INVALID_CARD_INFO"
 
     # Infrastructure
     BROWSER_ERROR = "BROWSER_ERROR"
@@ -51,6 +52,7 @@ _ERROR_MESSAGES: dict[str, str] = {
     GoPlayErrorCode.PACKAGE_NOT_FOUND: "Không tìm thấy gói nạp trên trang",
     GoPlayErrorCode.PAYMENT_NOT_FOUND: "Không tìm thấy phương thức thanh toán",
     GoPlayErrorCode.PAYMENT_ERROR: "Lỗi thanh toán",
+    GoPlayErrorCode.INVALID_CARD_INFO: "Thông tin thẻ không hợp lệ",
     GoPlayErrorCode.BROWSER_ERROR: "Không thể khởi động trình duyệt",
     GoPlayErrorCode.UNKNOWN_ERROR: "Lỗi không xác định",
 }

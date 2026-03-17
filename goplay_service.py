@@ -536,6 +536,15 @@ class GoPlayService:
         }
 
     def _fill_card_and_submit(self, card_serial: str, card_code: str):
+        # Pre-validate card info (GoPlay requires 8-32 chars)
+        errors = []
+        if not (8 <= len(card_serial) <= 32):
+            errors.append(f"Serial không hợp lệ (8-32 ký tự, hiện {len(card_serial)})")
+        if not (8 <= len(card_code) <= 32):
+            errors.append(f"Mã thẻ không hợp lệ (8-32 ký tự, hiện {len(card_code)})")
+        if errors:
+            raise GoPlayError(GoPlayErrorCode.INVALID_CARD_INFO, "; ".join(errors))
+
         self._handle_turnstile()
         serial_input = self.page.ele('#card-serial', timeout=15)
 
@@ -555,10 +564,23 @@ class GoPlayService:
         logger.info("Card submitted, waiting for result...")
 
         for _ in range(60):  # max 30s
+            # Check specific field validation errors first
+            field_errors = []
+            for sel in ['css:#card-serial ~ .text-danger', 'css:#card-code ~ .text-danger',
+                        'css:.card-serial-error', 'css:.card-code-error',
+                        'css:.input-error .text-danger']:
+                try:
+                    err_el = self.page.ele(sel, timeout=0.1)
+                    if err_el and err_el.text.strip():
+                        field_errors.append(err_el.text.strip())
+                except Exception:
+                    pass
+
             error_el = self.page.ele('#id-shop-popup-error', timeout=0.2)
             if error_el and error_el.text.strip():
+                detail = "; ".join(field_errors) if field_errors else error_el.text.strip()
                 self._dump_debug('payment_error')
-                raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, error_el.text.strip())
+                raise GoPlayError(GoPlayErrorCode.INVALID_CARD_INFO, detail)
 
             result = self._check_result_popup()
             if result:
