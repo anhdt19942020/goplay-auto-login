@@ -579,7 +579,7 @@ class GoPlayService:
         self._click(self.page.ele('#id-shop-popup-ok-btn'))
         logger.info("Card submitted, waiting for result...")
 
-        for _ in range(24):  # max 12s
+        for _ in range(60):  # max 30s
             error_el = self.page.ele('#id-shop-popup-error', timeout=0.2)
             if error_el and error_el.text.strip():
                 self._dump_debug('payment_error')
@@ -604,7 +604,7 @@ class GoPlayService:
             time.sleep(0.5)
 
         self._dump_debug('card_submit_timeout')
-        raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, "Không nhận được kết quả nạp thẻ sau 12s")
+        raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, "Không nhận được kết quả nạp thẻ sau 30s")
 
     # ------------------------------------------------------------------
     # Public API
