@@ -229,41 +229,16 @@ class GoPlayService:
                 logger.info(f"Turnstile already verified (token: {val[:20]}...)")
                 return
 
-            logger.info("Cloudflare Turnstile detected. Waiting for auto-verify...")
-
-            # Wait 1s for auto-verify first (server rarely auto-verifies)
-            for _ in range(2):
-                try:
-                    val = response_input.attr('value')
-                    if val:
-                        logger.info(f"Turnstile auto-verified (token: {val[:20]}...)")
-                        return
-                except Exception:
-                    pass
-                time.sleep(0.5)
-
-            logger.info("Auto-verify failed, attempting click strategies...")
+            logger.info("Cloudflare Turnstile detected, clicking immediately...")
 
             def _click_turnstile():
-                """Click Turnstile checkbox via iframe-relative coordinates + CDP.
-
-                Turnstile renders the checkbox via CSS/canvas — no accessible DOM elements.
-                We find the iframe element, scroll it into view, re-read its viewport rect
-                AFTER scroll, then compute click coords relative to the iframe position.
-
-                Cloudflare Turnstile widget spec (fixed by CF):
-                  - iframe is always 300px wide × 65px tall
-                  - checkbox circle center: ~40px from left edge, vertically centered
-                  - Safe click zone: iframe.x + [28..45], iframe.y + [height/2 ± 5]
-                """
-                # Re-fetch every call — position may change between Turnstile 1 and 2
+                """Click Turnstile checkbox via iframe-relative coordinates + CDP."""
                 iframe_el = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=5)
                 if not iframe_el:
                     logger.info("Turnstile iframe not found")
                     return False
 
                 try:
-                    # Scroll iframe into viewport using JS (most reliable)
                     try:
                         self.page.run_js(
                             'document.querySelector(\'iframe[src*="challenges.cloudflare.com"]\').scrollIntoView({block:"center"})'
@@ -276,20 +251,16 @@ class GoPlayService:
                         except Exception:
                             pass
 
-                    # Re-fetch AFTER scroll
                     iframe_el = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=3)
                     if not iframe_el:
                         return False
 
-                    # Use viewport_location (not location!) — CDP needs viewport-relative coords
                     try:
-                        vp_loc = iframe_el.rect.viewport_location  # (x, y) relative to viewport
+                        vp_loc = iframe_el.rect.viewport_location
                     except Exception:
-                        vp_loc = iframe_el.rect.location  # fallback
+                        vp_loc = iframe_el.rect.location
 
                     size = iframe_el.rect.size
-
-                    # Checkbox center: ~40px from left, vertically centered
                     click_x = int(vp_loc[0]) + random.randint(28, 45)
                     click_y = int(vp_loc[1] + size[1] / 2) + random.randint(-4, 4)
 
@@ -298,7 +269,6 @@ class GoPlayService:
                         f"size={size[0]:.0f}x{size[1]:.0f} → click=({click_x},{click_y})"
                     )
 
-                    # Sanity check: click must be within viewport
                     if click_y < 0 or click_y > 900:
                         logger.warning(f"Click y={click_y} outside viewport, scrolling again...")
                         self.page.run_js(
@@ -317,7 +287,6 @@ class GoPlayService:
                         click_y = int(vp_loc[1] + size[1] / 2) + random.randint(-4, 4)
                         logger.info(f"After re-scroll: viewport=({vp_loc[0]:.0f},{vp_loc[1]:.0f}) → click=({click_x},{click_y})")
 
-                    # CDP mouse events
                     self.page.run_cdp('Input.dispatchMouseEvent',
                                       type='mouseMoved', x=click_x, y=click_y,
                                       button='none', modifiers=0)
@@ -335,11 +304,12 @@ class GoPlayService:
                     logger.warning(f"Turnstile click error: {e}")
                     return False
 
-            # First click attempt
+            # Small delay for iframe to render position, then click
+            time.sleep(0.3)
             _click_turnstile()
 
-            # Wait up to 30s total for verification
-            for i in range(58):  # 29s after the initial 1s auto-verify wait = 30s total
+            # Wait up to 30s for verification (poll every 0.2s for fast detection)
+            for i in range(150):  # 150 × 0.2s = 30s
                 try:
                     val = response_input.attr('value')
                     if val:
@@ -348,13 +318,13 @@ class GoPlayService:
                 except Exception:
                     pass
 
-                # Retry click every 5s with different strategy
-                if i > 0 and i % 10 == 0:
-                    elapsed = 3 + i * 0.5
+                # Retry click every 3s
+                if i > 0 and i % 15 == 0:
+                    elapsed = i * 0.2
                     logger.info(f"Turnstile not verified after {elapsed:.0f}s, retrying click...")
                     _click_turnstile()
 
-                time.sleep(0.5)
+                time.sleep(0.2)
 
             logger.warning("Turnstile NOT verified after 30s")
         except Exception as e:
