@@ -36,3 +36,10 @@ test_request.json
 test_api.py
 task_xml.txt
 start_bg.bat
+
+# Recon output (sensitive data)
+recon_output.json
+recon_pretty.json
+recon_log.txt
+chrome_recon/
+chrome_profile_recon/
