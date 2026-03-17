@@ -478,6 +478,11 @@ class GoPlayService:
     def _navigate_to_game(self, game: GameCode):
         self.page.get(f'https://goplay.vn/cua-hang/{game.value}')
         self.page.wait.ele_displayed('css:.goPlay-package', timeout=10)
+        # Detect session expiry: GoPlay redirects to login page
+        if 'oauth/dang-nhap' in self.page.url or 'signin' in self.page.url:
+            logger.warning("Session expired (redirected to login page), will re-login")
+            GoPlayService._current_account = None
+            raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT, "SESSION_EXPIRED")
         logger.info(f"Game page: {self.page.url}")
 
     def _select_package(self, package: CrossfirePackage):
@@ -623,7 +628,17 @@ class GoPlayService:
             self._ensure_browser()
 
             self._login(account, password)
-            self._navigate_to_game(game)
+
+            try:
+                self._navigate_to_game(game)
+            except GoPlayError as nav_err:
+                if 'SESSION_EXPIRED' in str(nav_err.detail):
+                    logger.info("Re-logging in after session expiry...")
+                    self._login(account, password)
+                    self._navigate_to_game(game)
+                else:
+                    raise
+
             self._select_package(package)
             self._handle_turnstile(detect_timeout=2)
             self._select_payment(PaymentMethod.THE_VCOIN)
