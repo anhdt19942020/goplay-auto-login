@@ -43,3 +43,7 @@ recon_pretty.json
 recon_log.txt
 chrome_recon/
 chrome_profile_recon/
+chrome_poc/
+poc_result.json
+poc_topup.log
+poc_log_clean.txt
