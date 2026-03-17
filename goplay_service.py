@@ -263,32 +263,61 @@ class GoPlayService:
                     return False
 
                 try:
-                    # Scroll iframe into view, then wait for layout to settle
+                    # Scroll iframe into viewport using JS (most reliable)
                     try:
-                        iframe_el.scroll.to_see()
-                        time.sleep(0.4)
+                        self.page.run_js(
+                            'document.querySelector(\'iframe[src*="challenges.cloudflare.com"]\').scrollIntoView({block:"center"})'
+                        )
+                        time.sleep(0.5)
                     except Exception:
-                        pass
+                        try:
+                            iframe_el.scroll.to_see()
+                            time.sleep(0.4)
+                        except Exception:
+                            pass
 
-                    # Re-fetch rect AFTER scroll (viewport-relative coords change post-scroll)
+                    # Re-fetch AFTER scroll
                     iframe_el = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=3)
                     if not iframe_el:
                         return False
 
-                    loc = iframe_el.rect.location   # (x, y) top-left of iframe in viewport
-                    size = iframe_el.rect.size       # (width, height) of iframe
+                    # Use viewport_location (not location!) — CDP needs viewport-relative coords
+                    try:
+                        vp_loc = iframe_el.rect.viewport_location  # (x, y) relative to viewport
+                    except Exception:
+                        vp_loc = iframe_el.rect.location  # fallback
 
-                    # Checkbox is always in left portion of the 300x65 widget
-                    # Center of the checkbox circle: ~40px from left, ~half height
-                    click_x = int(loc[0]) + random.randint(28, 45)
-                    click_y = int(loc[1] + size[1] / 2) + random.randint(-4, 4)
+                    size = iframe_el.rect.size
+
+                    # Checkbox center: ~40px from left, vertically centered
+                    click_x = int(vp_loc[0]) + random.randint(28, 45)
+                    click_y = int(vp_loc[1] + size[1] / 2) + random.randint(-4, 4)
 
                     logger.info(
-                        f"Turnstile iframe rect: top-left=({loc[0]:.0f},{loc[1]:.0f}) "
+                        f"Turnstile iframe rect: viewport=({vp_loc[0]:.0f},{vp_loc[1]:.0f}) "
                         f"size={size[0]:.0f}x{size[1]:.0f} → click=({click_x},{click_y})"
                     )
 
-                    # CDP Input events — more trusted by Turnstile than actions.move()
+                    # Sanity check: click must be within viewport
+                    if click_y < 0 or click_y > 900:
+                        logger.warning(f"Click y={click_y} outside viewport, scrolling again...")
+                        self.page.run_js(
+                            'document.querySelector(\'iframe[src*="challenges.cloudflare.com"]\').scrollIntoView({block:"center"})'
+                        )
+                        time.sleep(0.5)
+                        iframe_el = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=3)
+                        if not iframe_el:
+                            return False
+                        try:
+                            vp_loc = iframe_el.rect.viewport_location
+                        except Exception:
+                            vp_loc = iframe_el.rect.location
+                        size = iframe_el.rect.size
+                        click_x = int(vp_loc[0]) + random.randint(28, 45)
+                        click_y = int(vp_loc[1] + size[1] / 2) + random.randint(-4, 4)
+                        logger.info(f"After re-scroll: viewport=({vp_loc[0]:.0f},{vp_loc[1]:.0f}) → click=({click_x},{click_y})")
+
+                    # CDP mouse events
                     self.page.run_cdp('Input.dispatchMouseEvent',
                                       type='mouseMoved', x=click_x, y=click_y,
                                       button='none', modifiers=0)
