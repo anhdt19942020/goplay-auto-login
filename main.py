@@ -84,7 +84,8 @@ async def queue_worker():
             queue_stats["total_processed"] += 1
 
             # Fire-and-forget: callback + telegram
-            notify_payload = {**result, "account": task.account, "game": task.game.value}
+            elapsed = time.time() - task.created_at
+            notify_payload = {**result, "account": task.account, "game": task.game.value, "elapsed_seconds": elapsed}
             asyncio.create_task(notify_topup(notify_payload))
             if task.url_callback:
                 asyncio.create_task(call_callback(task.url_callback, result))

@@ -4,7 +4,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = "5707304431:AAGfQQBQ3_ZLXCkXoBfw9GDLVwG0kxtoyeM"
-CHAT_ID = "@edutalkdebug"
+CHAT_ID = "@goplay94"
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
 
@@ -38,6 +38,9 @@ async def notify_topup(params: dict):
         lines.append(f"GO nhận: {detail['go_received']}")
     if detail.get("balance") is not None:
         lines.append(f"Số dư: {detail['balance']}GO")
+
+    if params.get("elapsed_seconds") is not None:
+        lines.append(f"⏱ Thời gian: {params['elapsed_seconds']:.1f}s")
 
     if not success:
         lines.append(f"Lỗi: {params.get('error_code', '?')}")
