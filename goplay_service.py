@@ -477,7 +477,9 @@ class GoPlayService:
         return token
 
     def _get_store_turnstile_token(self) -> str:
-        """Trigger Turnstile on store page and wait for token."""
+        """Trigger Turnstile on store page, click iframe, and wait for token."""
+        import random
+
         # Try auto-detected token first (sometimes already solved)
         try:
             inp = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=2)
@@ -502,28 +504,79 @@ class GoPlayService:
         except Exception as e:
             logger.warning(f"TurnstileHelper call failed: {e}")
 
-        # Poll for the token
-        for i in range(20):  # 20 × 2s = 40s max
-            time.sleep(2)
+        # Wait for Turnstile widget to render
+        time.sleep(1.5)
+
+        # Click iframe + poll for token (combined loop, max 30s)
+        clicked = False
+        for i in range(150):  # 150 × 0.2s = 30s
+            # Check JS callback
             try:
                 token = self.page.run_js("return window.__topup_turnstile || null;")
                 if token:
-                    logger.info(f"Turnstile solved: {token[:30]}...")
+                    logger.info(f"Store Turnstile solved (callback): {token[:30]}...")
                     return token
             except Exception:
                 pass
-            # Also check the input field
+
+            # Check input field
             try:
-                inp = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=0.3)
+                inp = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=0.2)
                 if inp:
                     val = inp.attr('value')
                     if val and len(val) > 10:
-                        logger.info(f"Turnstile solved (input): {val[:30]}...")
+                        logger.info(f"Store Turnstile solved (input): {val[:30]}...")
                         return val
             except Exception:
                 pass
 
-        logger.warning("Turnstile token not obtained after 40s, proceeding with empty")
+            # Click iframe: first attempt + retry every 3s
+            if not clicked or (i > 0 and i % 15 == 0):
+                try:
+                    iframe_el = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=1)
+                    if iframe_el:
+                        try:
+                            self.page.run_js(
+                                'document.querySelector(\'iframe[src*="challenges.cloudflare.com"]\').scrollIntoView({block:"center"})'
+                            )
+                            time.sleep(0.3)
+                        except Exception:
+                            pass
+
+                        iframe_el = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=1)
+                        if iframe_el:
+                            try:
+                                vp_loc = iframe_el.rect.viewport_location
+                            except Exception:
+                                vp_loc = iframe_el.rect.location
+                            size = iframe_el.rect.size
+                            cx = int(vp_loc[0]) + random.randint(28, 45)
+                            cy = int(vp_loc[1] + size[1] / 2) + random.randint(-4, 4)
+
+                            self.page.run_cdp('Input.dispatchMouseEvent',
+                                              type='mouseMoved', x=cx, y=cy,
+                                              button='none', modifiers=0)
+                            time.sleep(random.uniform(0.05, 0.12))
+                            self.page.run_cdp('Input.dispatchMouseEvent',
+                                              type='mousePressed', x=cx, y=cy,
+                                              button='left', clickCount=1, modifiers=0)
+                            time.sleep(random.uniform(0.04, 0.10))
+                            self.page.run_cdp('Input.dispatchMouseEvent',
+                                              type='mouseReleased', x=cx, y=cy,
+                                              button='left', clickCount=1, modifiers=0)
+
+                            elapsed = i * 0.2
+                            if not clicked:
+                                logger.info(f"Store Turnstile clicked at ({cx},{cy})")
+                            else:
+                                logger.info(f"Store Turnstile retry click ({elapsed:.0f}s) at ({cx},{cy})")
+                            clicked = True
+                except Exception as e:
+                    logger.warning(f"Store Turnstile click error: {e}")
+
+            time.sleep(0.2)
+
+        logger.warning("Store Turnstile NOT solved after 30s")
         return ""
 
     def _http_card_topup(self, game: GameCode, card_serial: str, card_code: str, method: str = "CARD-VCOIN") -> dict:
