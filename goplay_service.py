@@ -56,6 +56,8 @@ class GoPlayService:
     _page: ChromiumPage | None = None
     _current_account: str | None = None
     _chrome_profile_dir = os.path.join(WORKSPACE_DIR, 'chrome_profile_vlcm')
+    _cached_turnstile_token: str | None = None
+    _cached_turnstile_time: float = 0
 
     def __init__(self):
         os.makedirs(self._chrome_profile_dir, exist_ok=True)
@@ -477,85 +479,25 @@ class GoPlayService:
         return token
 
     def _get_store_turnstile_token(self) -> str:
-        """Get Turnstile token from store page using multiple strategies."""
-        import random
+        """Get Turnstile token — uses cache or renderEnableVerify + iframe click."""
+        CACHE_TTL = 240  # 4 minutes
 
-        # Strategy 0: Check if already solved
+        # Check cache first
+        if (GoPlayService._cached_turnstile_token
+                and (time.time() - GoPlayService._cached_turnstile_time) < CACHE_TTL):
+            age = int(time.time() - GoPlayService._cached_turnstile_time)
+            logger.info(f"Using cached Turnstile token ({age}s old): {GoPlayService._cached_turnstile_token[:30]}...")
+            return GoPlayService._cached_turnstile_token
+
+        # Check if already solved on page
         token = self._check_turnstile_input()
         if token:
             logger.info(f"Turnstile already solved: {token[:30]}...")
+            self._cache_turnstile_token(token)
             return token
 
-        # Strategy 1: TurnstileHelper.verifyAsync() — returns Promise
-        logger.info("Strategy 1: TurnstileHelper.verifyAsync()...")
-        try:
-            self.page.run_js("""
-                window.__topup_turnstile = null;
-                if (typeof TurnstileHelper !== 'undefined') {
-                    if (typeof TurnstileHelper.verifyAsync === 'function') {
-                        TurnstileHelper.verifyAsync().then(function(token) {
-                            window.__topup_turnstile = token;
-                        }).catch(function(e) {
-                            console.warn('verifyAsync failed:', e);
-                        });
-                    }
-                }
-            """)
-            token = self._poll_turnstile_token(timeout=15)
-            if token:
-                return token
-        except Exception as e:
-            logger.warning(f"verifyAsync failed: {e}")
-
-        # Strategy 2: TurnstileHelper.runNow() + getToken()
-        logger.info("Strategy 2: TurnstileHelper.runNow()...")
-        try:
-            self.page.run_js("""
-                window.__topup_turnstile = null;
-                if (typeof TurnstileHelper !== 'undefined') {
-                    if (typeof TurnstileHelper.runNow === 'function') {
-                        TurnstileHelper.runNow();
-                    }
-                }
-            """)
-            time.sleep(3)
-            try:
-                token = self.page.run_js("""
-                    if (typeof TurnstileHelper !== 'undefined' && typeof TurnstileHelper.getToken === 'function') {
-                        return TurnstileHelper.getToken() || null;
-                    }
-                    return null;
-                """)
-                if token and len(str(token)) > 10:
-                    logger.info(f"Store Turnstile solved (runNow+getToken): {token[:30]}...")
-                    return token
-            except Exception:
-                pass
-            token = self._poll_turnstile_token(timeout=10)
-            if token:
-                return token
-        except Exception as e:
-            logger.warning(f"runNow failed: {e}")
-
-        # Strategy 3: enableAndVerify with callback
-        logger.info("Strategy 3: TurnstileHelper.enableAndVerify()...")
-        try:
-            self.page.run_js("""
-                window.__topup_turnstile = null;
-                if (typeof TurnstileHelper !== 'undefined' && typeof TurnstileHelper.enableAndVerify === 'function') {
-                    TurnstileHelper.enableAndVerify(function(token) {
-                        window.__topup_turnstile = token;
-                    });
-                }
-            """)
-            token = self._poll_turnstile_token(timeout=15)
-            if token:
-                return token
-        except Exception as e:
-            logger.warning(f"enableAndVerify failed: {e}")
-
-        # Strategy 4: renderEnableVerify (original) + iframe click
-        logger.info("Strategy 4: renderEnableVerify + iframe click...")
+        # renderEnableVerify + iframe click (proven strategy)
+        logger.info("Triggering renderEnableVerify + iframe click...")
         try:
             self.page.run_js("""
                 window.__topup_turnstile = null;
@@ -568,12 +510,13 @@ class GoPlayService:
         except Exception as e:
             logger.warning(f"renderEnableVerify call failed: {e}")
 
-        time.sleep(1.5)
+        time.sleep(1)
         # Click iframe + poll (max 20s)
         clicked = False
         for i in range(100):  # 100 × 0.2s = 20s
             token = self._poll_turnstile_token(timeout=0)
             if token:
+                self._cache_turnstile_token(token)
                 return token
 
             if not clicked or (i > 0 and i % 15 == 0):
@@ -582,26 +525,29 @@ class GoPlayService:
 
             time.sleep(0.2)
 
-        # Strategy 5: Direct turnstile API
-        logger.info("Strategy 5: Direct turnstile.getResponse()...")
+        # Fallback: direct turnstile API
         try:
             token = self.page.run_js("""
-                if (typeof turnstile !== 'undefined') {
-                    if (typeof turnstile.getResponse === 'function') {
-                        var r = turnstile.getResponse();
-                        if (r && r.length > 10) return r;
-                    }
+                if (typeof turnstile !== 'undefined' && typeof turnstile.getResponse === 'function') {
+                    var r = turnstile.getResponse();
+                    if (r && r.length > 10) return r;
                 }
                 return null;
             """)
             if token and len(str(token)) > 10:
-                logger.info(f"Store Turnstile solved (direct API): {token[:30]}...")
+                logger.info(f"Turnstile solved (direct API): {token[:30]}...")
+                self._cache_turnstile_token(token)
                 return token
         except Exception:
             pass
 
-        logger.warning("All Turnstile strategies failed")
+        logger.warning("Turnstile NOT solved after 20s")
         return ""
+
+    def _cache_turnstile_token(self, token: str):
+        """Cache Turnstile token for reuse across requests."""
+        GoPlayService._cached_turnstile_token = token
+        GoPlayService._cached_turnstile_time = time.time()
 
     def _check_turnstile_input(self) -> str | None:
         """Check if cf-turnstile-response input has a value."""
