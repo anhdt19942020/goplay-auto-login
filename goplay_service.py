@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import time
@@ -56,11 +57,13 @@ class GoPlayService:
     _page: ChromiumPage | None = None
     _current_account: str | None = None
     _chrome_profile_dir = os.path.join(WORKSPACE_DIR, 'chrome_profile_vlcm')
+    _session_dir = os.path.join(WORKSPACE_DIR, 'sessions')
     _cached_turnstile_token: str | None = None
     _cached_turnstile_time: float = 0
 
     def __init__(self):
         os.makedirs(self._chrome_profile_dir, exist_ok=True)
+        os.makedirs(self._session_dir, exist_ok=True)
 
     # ------------------------------------------------------------------
     # Browser lifecycle
@@ -381,6 +384,77 @@ class GoPlayService:
         self._dump_debug('login_timeout')
         raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT)
 
+    # ------------------------------------------------------------------
+    # Session Cookie Store
+    # ------------------------------------------------------------------
+
+    def _session_path(self, account: str) -> str:
+        safe_name = re.sub(r'[^\w.-]', '_', account)
+        return os.path.join(self._session_dir, f'{safe_name}.json')
+
+    def _save_session(self, account: str):
+        """Save all GoPlay cookies for this account to disk."""
+        try:
+            cdp_cookies = self.page.run_cdp('Network.getAllCookies').get('cookies', [])
+            goplay_cookies = [c for c in cdp_cookies if 'goplay' in c.get('domain', '')]
+            data = {'account': account, 'saved_at': time.time(), 'cookies': goplay_cookies}
+            with open(self._session_path(account), 'w', encoding='utf-8') as f:
+                json.dump(data, f)
+            logger.info(f"Session saved: {account} ({len(goplay_cookies)} cookies)")
+        except Exception as e:
+            logger.warning(f"Failed to save session for {account}: {e}")
+
+    def _load_session(self, account: str) -> bool:
+        """Try to restore a saved session. Returns True if login was skipped."""
+        path = self._session_path(account)
+        if not os.path.exists(path):
+            return False
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            # Session > 12h old → discard
+            if time.time() - data.get('saved_at', 0) > 12 * 3600:
+                logger.info(f"Session for {account} too old (>12h), discarding")
+                self._clear_session(account)
+                return False
+            cookies = data.get('cookies', [])
+            if not cookies:
+                return False
+
+            # Clear current cookies and inject saved ones
+            self.page.set.cookies.clear()
+            for c in cookies:
+                try:
+                    self.page.run_cdp('Network.setCookie', **{
+                        'name': c['name'], 'value': c['value'],
+                        'domain': c['domain'], 'path': c.get('path', '/'),
+                        'secure': c.get('secure', False),
+                        'httpOnly': c.get('httpOnly', False),
+                    })
+                except Exception:
+                    pass
+
+            # Navigate and check if session is still valid
+            self.page.get('https://goplay.vn/')
+            if self.page.ele('css:.userInfo', timeout=3):
+                logger.info(f"Session restored for {account} ✅ (skipped login)")
+                GoPlayService._current_account = account
+                return True
+            else:
+                logger.info(f"Saved session for {account} expired, will login fresh")
+                self._clear_session(account)
+                return False
+        except Exception as e:
+            logger.warning(f"Failed to load session for {account}: {e}")
+            return False
+
+    def _clear_session(self, account: str):
+        path = self._session_path(account)
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+
     def _logout(self):
         """Logout by clearing cookies and reloading."""
         logger.info(f"Logging out (was: {GoPlayService._current_account})...")
@@ -398,13 +472,18 @@ class GoPlayService:
             if self.page.ele('css:.userInfo', timeout=1):
                 logger.info(f"Already logged in as {account}, skipping login")
                 return
-            # Session expired, need to re-login
             logger.info("Session expired, re-logging in...")
             GoPlayService._current_account = None
+            self._clear_session(account)
 
-        # Different account → logout first
+        # Different account → try restoring saved session first
         if GoPlayService._current_account is not None:
+            self._save_session(GoPlayService._current_account)  # save outgoing
             self._logout()
+
+        # Attempt session restore
+        if self._load_session(account):
+            return  # Session restored, no login needed!
 
         self.page.get('https://goplay.vn/')
         self.page.wait.ele_displayed('css:.btn-auth.box-login', timeout=5)
@@ -424,7 +503,7 @@ class GoPlayService:
         self._handle_turnstile()
         self._click(self.page.ele('#btn-submit-username'))
 
-        for _ in range(60):  # max 30s (server Turnstile may take longer)
+        for _ in range(60):  # max 30s
             if self.page.ele('#password', timeout=0.3):
                 break
             error_el = self.page.ele('css:.input-error .text-danger', timeout=0.2)
@@ -443,6 +522,7 @@ class GoPlayService:
 
         self._wait_login_result()
         GoPlayService._current_account = account
+        self._save_session(account)  # save for future reuse
 
     # ------------------------------------------------------------------
     # Shopping flow (Hybrid: browser for navigation + HTTP for topup)
@@ -880,6 +960,7 @@ class GoPlayService:
             except GoPlayError as nav_err:
                 if 'SESSION_EXPIRED' in str(nav_err.detail):
                     logger.info("Re-logging in after session expiry...")
+                    self._clear_session(account)
                     self._login(account, password)
                     self._navigate_to_game(game)
                 else:
