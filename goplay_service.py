@@ -579,6 +579,14 @@ class GoPlayService:
         logger.warning("Store Turnstile NOT solved after 30s")
         return ""
 
+    def _classify_topup_error(self, error_msg: str) -> GoPlayErrorCode:
+        """Classify topup error messages returned by GoPlay."""
+        normalized = (error_msg or "").strip()
+        popup_code = GoPlayErrorCode.from_popup_message(normalized)
+        if popup_code != GoPlayErrorCode.UNKNOWN_ERROR:
+            return popup_code
+        return GoPlayErrorCode.PAYMENT_ERROR
+
     def _http_card_topup(self, game: GameCode, card_serial: str, card_code: str, method: str = "CARD-VCOIN") -> dict:
         """Submit card topup via HTTP POST instead of browser clicks."""
         # Validate card info
@@ -657,7 +665,7 @@ class GoPlayService:
         else:
             error_msg = data.get("message", "Lỗi không xác định")
             logger.warning(f"❌ Topup failed: {error_msg}")
-            raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, error_msg)
+            raise GoPlayError(self._classify_topup_error(error_msg), error_msg)
 
     # ------------------------------------------------------------------
     # Public API

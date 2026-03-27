@@ -2,7 +2,7 @@ from enum import Enum
 
 
 class GoPlayErrorCode(str, Enum):
-    """Error codes for GoPlay API responses"""
+    """Error codes for GoPlay API responses."""
 
     # Login errors
     WRONG_PASSWORD = "WRONG_PASSWORD"
@@ -19,6 +19,7 @@ class GoPlayErrorCode(str, Enum):
     PACKAGE_NOT_FOUND = "PACKAGE_NOT_FOUND"
     PAYMENT_NOT_FOUND = "PAYMENT_NOT_FOUND"
     PAYMENT_ERROR = "PAYMENT_ERROR"
+    CAPTCHA_REQUIRED = "CAPTCHA_REQUIRED"
     INVALID_CARD_INFO = "INVALID_CARD_INFO"
 
     # Infrastructure
@@ -33,7 +34,7 @@ class GoPlayErrorCode(str, Enum):
 
     @classmethod
     def from_popup_message(cls, popup_text: str) -> "GoPlayErrorCode":
-        """Map GoPlay popup message text to error code"""
+        """Map GoPlay popup message text to error code."""
         normalized = popup_text.strip().lower()
         for text, code in _POPUP_TEXT_MAP.items():
             if text in normalized:
@@ -41,7 +42,7 @@ class GoPlayErrorCode(str, Enum):
         return cls.UNKNOWN_ERROR
 
 
-_ERROR_MESSAGES: dict[str, str] = {
+_ERROR_MESSAGES: dict[GoPlayErrorCode, str] = {
     GoPlayErrorCode.WRONG_PASSWORD: "Sai mật khẩu",
     GoPlayErrorCode.ACCOUNT_LOCKED: "Tài khoản bị khóa",
     GoPlayErrorCode.ACCOUNT_NOT_FOUND: "Tài khoản không tồn tại",
@@ -52,6 +53,7 @@ _ERROR_MESSAGES: dict[str, str] = {
     GoPlayErrorCode.PACKAGE_NOT_FOUND: "Không tìm thấy gói nạp trên trang",
     GoPlayErrorCode.PAYMENT_NOT_FOUND: "Không tìm thấy phương thức thanh toán",
     GoPlayErrorCode.PAYMENT_ERROR: "Lỗi thanh toán",
+    GoPlayErrorCode.CAPTCHA_REQUIRED: "Bạn chưa xác thực captcha",
     GoPlayErrorCode.INVALID_CARD_INFO: "Thông tin thẻ không hợp lệ",
     GoPlayErrorCode.BROWSER_ERROR: "Không thể khởi động trình duyệt",
     GoPlayErrorCode.UNKNOWN_ERROR: "Lỗi không xác định",
@@ -67,6 +69,8 @@ _POPUP_TEXT_MAP: dict[str, GoPlayErrorCode] = {
     "account not found": GoPlayErrorCode.ACCOUNT_NOT_FOUND,
     "không tìm thấy tài khoản": GoPlayErrorCode.ACCOUNT_NOT_FOUND,
     "chưa được đăng ký": GoPlayErrorCode.ACCOUNT_NOT_REGISTERED,
+    "bạn chưa xác thực captcha": GoPlayErrorCode.CAPTCHA_REQUIRED,
+    "captcha": GoPlayErrorCode.CAPTCHA_REQUIRED,
 }
 
 
@@ -78,7 +82,8 @@ class GameCode(str, Enum):
 
 
 class CrossfirePackage(Enum):
-    """Crossfire GO packages (1 GO = 1,000đ)"""
+    """Crossfire GO packages (1 GO = 1,000đ)."""
+
     GO_20 = (1, "Nhận 20 GO", 20, 20_000, 0)
     GO_50 = (2, "Nhận 50 GO", 50, 50_000, 0)
     GO_100 = (3, "Nhận 100 GO", 100, 100_000, 0)
@@ -99,8 +104,9 @@ class CrossfirePackage(Enum):
 
 
 class DreamyPackage(Enum):
-    """Dreamy Café - nạp bao nhiêu nhận bấy nhiêu"""
-    DEFAULT = (0, "Nạp thẻ Dreamy Café", 0, 0, 0)
+    """Dreamy Cafe - nạp bao nhiêu nhận bấy nhiêu."""
+
+    DEFAULT = (0, "Nạp thẻ Dreamy Cafe", 0, 0, 0)
 
     def __init__(self, pack_id, pack_name, go, price, pack_type):
         self.pack_id = pack_id
@@ -111,7 +117,8 @@ class DreamyPackage(Enum):
 
 
 class VPTPackage(Enum):
-    """Vua Pháp Thuật - nạp bao nhiêu nhận bấy nhiêu"""
+    """Vua Pháp Thuật - nạp bao nhiêu nhận bấy nhiêu."""
+
     DEFAULT = (0, "Nạp thẻ Vua Pháp Thuật", 0, 0, 0)
 
     def __init__(self, pack_id, pack_name, go, price, pack_type):
