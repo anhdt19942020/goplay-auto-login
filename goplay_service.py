@@ -466,9 +466,9 @@ class GoPlayService:
             pass
         GoPlayService._current_account = None
 
-    def _login(self, account: str, password: str):
+    def _login(self, account: str, password: str, force_fresh: bool = False):
         # Already logged in with the same account → skip
-        if GoPlayService._current_account == account:
+        if GoPlayService._current_account == account and not force_fresh:
             if self.page.ele('css:.userInfo', timeout=1):
                 logger.info(f"Already logged in as {account}, skipping login")
                 return
@@ -481,8 +481,8 @@ class GoPlayService:
             self._save_session(GoPlayService._current_account)  # save outgoing
             self._logout()
 
-        # Attempt session restore
-        if self._load_session(account):
+        # Attempt session restore (skip if forced fresh)
+        if not force_fresh and self._load_session(account):
             return  # Session restored, no login needed!
 
         self.page.get('https://goplay.vn/')
@@ -959,9 +959,9 @@ class GoPlayService:
                 self._navigate_to_game(game)
             except GoPlayError as nav_err:
                 if 'SESSION_EXPIRED' in str(nav_err.detail):
-                    logger.info("Re-logging in after session expiry...")
+                    logger.info("Restored session expired at navigate → fresh login...")
                     self._clear_session(account)
-                    self._login(account, password)
+                    self._login(account, password, force_fresh=True)
                     self._navigate_to_game(game)
                 else:
                     raise
