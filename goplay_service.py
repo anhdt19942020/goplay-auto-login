@@ -477,24 +477,88 @@ class GoPlayService:
         return token
 
     def _get_store_turnstile_token(self) -> str:
-        """Trigger Turnstile on store page, click iframe, and wait for token."""
+        """Get Turnstile token from store page using multiple strategies."""
         import random
 
-        # Try auto-detected token first (sometimes already solved)
-        try:
-            inp = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=2)
-            if inp:
-                val = inp.attr('value')
-                if val and len(val) > 10:
-                    logger.info(f"Turnstile already solved: {val[:30]}...")
-                    return val
-        except Exception:
-            pass
+        # Strategy 0: Check if already solved
+        token = self._check_turnstile_input()
+        if token:
+            logger.info(f"Turnstile already solved: {token[:30]}...")
+            return token
 
-        # Trigger TurnstileHelper.renderEnableVerify() via JS
-        logger.info("Triggering TurnstileHelper.renderEnableVerify()...")
+        # Strategy 1: TurnstileHelper.verifyAsync() — returns Promise
+        logger.info("Strategy 1: TurnstileHelper.verifyAsync()...")
         try:
             self.page.run_js("""
+                window.__topup_turnstile = null;
+                if (typeof TurnstileHelper !== 'undefined') {
+                    if (typeof TurnstileHelper.verifyAsync === 'function') {
+                        TurnstileHelper.verifyAsync().then(function(token) {
+                            window.__topup_turnstile = token;
+                        }).catch(function(e) {
+                            console.warn('verifyAsync failed:', e);
+                        });
+                    }
+                }
+            """)
+            token = self._poll_turnstile_token(timeout=15)
+            if token:
+                return token
+        except Exception as e:
+            logger.warning(f"verifyAsync failed: {e}")
+
+        # Strategy 2: TurnstileHelper.runNow() + getToken()
+        logger.info("Strategy 2: TurnstileHelper.runNow()...")
+        try:
+            self.page.run_js("""
+                window.__topup_turnstile = null;
+                if (typeof TurnstileHelper !== 'undefined') {
+                    if (typeof TurnstileHelper.runNow === 'function') {
+                        TurnstileHelper.runNow();
+                    }
+                }
+            """)
+            time.sleep(3)
+            try:
+                token = self.page.run_js("""
+                    if (typeof TurnstileHelper !== 'undefined' && typeof TurnstileHelper.getToken === 'function') {
+                        return TurnstileHelper.getToken() || null;
+                    }
+                    return null;
+                """)
+                if token and len(str(token)) > 10:
+                    logger.info(f"Store Turnstile solved (runNow+getToken): {token[:30]}...")
+                    return token
+            except Exception:
+                pass
+            token = self._poll_turnstile_token(timeout=10)
+            if token:
+                return token
+        except Exception as e:
+            logger.warning(f"runNow failed: {e}")
+
+        # Strategy 3: enableAndVerify with callback
+        logger.info("Strategy 3: TurnstileHelper.enableAndVerify()...")
+        try:
+            self.page.run_js("""
+                window.__topup_turnstile = null;
+                if (typeof TurnstileHelper !== 'undefined' && typeof TurnstileHelper.enableAndVerify === 'function') {
+                    TurnstileHelper.enableAndVerify(function(token) {
+                        window.__topup_turnstile = token;
+                    });
+                }
+            """)
+            token = self._poll_turnstile_token(timeout=15)
+            if token:
+                return token
+        except Exception as e:
+            logger.warning(f"enableAndVerify failed: {e}")
+
+        # Strategy 4: renderEnableVerify (original) + iframe click
+        logger.info("Strategy 4: renderEnableVerify + iframe click...")
+        try:
+            self.page.run_js("""
+                window.__topup_turnstile = null;
                 if (typeof TurnstileHelper !== 'undefined' && typeof TurnstileHelper.renderEnableVerify === 'function') {
                     TurnstileHelper.renderEnableVerify(function(token) {
                         window.__topup_turnstile = token;
@@ -502,82 +566,113 @@ class GoPlayService:
                 }
             """)
         except Exception as e:
-            logger.warning(f"TurnstileHelper call failed: {e}")
+            logger.warning(f"renderEnableVerify call failed: {e}")
 
-        # Wait for Turnstile widget to render
         time.sleep(1.5)
-
-        # Click iframe + poll for token (combined loop, max 30s)
+        # Click iframe + poll (max 20s)
         clicked = False
-        for i in range(150):  # 150 × 0.2s = 30s
-            # Check JS callback
+        for i in range(100):  # 100 × 0.2s = 20s
+            token = self._poll_turnstile_token(timeout=0)
+            if token:
+                return token
+
+            if not clicked or (i > 0 and i % 15 == 0):
+                self._click_turnstile_iframe()
+                clicked = True
+
+            time.sleep(0.2)
+
+        # Strategy 5: Direct turnstile API
+        logger.info("Strategy 5: Direct turnstile.getResponse()...")
+        try:
+            token = self.page.run_js("""
+                if (typeof turnstile !== 'undefined') {
+                    if (typeof turnstile.getResponse === 'function') {
+                        var r = turnstile.getResponse();
+                        if (r && r.length > 10) return r;
+                    }
+                }
+                return null;
+            """)
+            if token and len(str(token)) > 10:
+                logger.info(f"Store Turnstile solved (direct API): {token[:30]}...")
+                return token
+        except Exception:
+            pass
+
+        logger.warning("All Turnstile strategies failed")
+        return ""
+
+    def _check_turnstile_input(self) -> str | None:
+        """Check if cf-turnstile-response input has a value."""
+        try:
+            inp = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=2)
+            if inp:
+                val = inp.attr('value')
+                if val and len(val) > 10:
+                    return val
+        except Exception:
+            pass
+        return None
+
+    def _poll_turnstile_token(self, timeout: int = 15) -> str | None:
+        """Poll for Turnstile token from JS callback or input field."""
+        if timeout == 0:
+            # Single check, no polling
             try:
                 token = self.page.run_js("return window.__topup_turnstile || null;")
-                if token:
+                if token and len(str(token)) > 10:
                     logger.info(f"Store Turnstile solved (callback): {token[:30]}...")
                     return token
             except Exception:
                 pass
+            return self._check_turnstile_input()
 
-            # Check input field
+        for i in range(int(timeout / 0.3)):
             try:
-                inp = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=0.2)
-                if inp:
-                    val = inp.attr('value')
-                    if val and len(val) > 10:
-                        logger.info(f"Store Turnstile solved (input): {val[:30]}...")
-                        return val
+                token = self.page.run_js("return window.__topup_turnstile || null;")
+                if token and len(str(token)) > 10:
+                    logger.info(f"Store Turnstile solved (callback): {token[:30]}...")
+                    return token
             except Exception:
                 pass
+            val = self._check_turnstile_input()
+            if val:
+                logger.info(f"Store Turnstile solved (input): {val[:30]}...")
+                return val
+            time.sleep(0.3)
+        return None
 
-            # Click iframe: first attempt + retry every 3s
-            if not clicked or (i > 0 and i % 15 == 0):
-                try:
-                    iframe_el = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=1)
-                    if iframe_el:
-                        try:
-                            self.page.run_js(
-                                'document.querySelector(\'iframe[src*="challenges.cloudflare.com"]\').scrollIntoView({block:"center"})'
-                            )
-                            time.sleep(0.3)
-                        except Exception:
-                            pass
-
-                        iframe_el = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=1)
-                        if iframe_el:
-                            try:
-                                vp_loc = iframe_el.rect.viewport_location
-                            except Exception:
-                                vp_loc = iframe_el.rect.location
-                            size = iframe_el.rect.size
-                            cx = int(vp_loc[0]) + random.randint(28, 45)
-                            cy = int(vp_loc[1] + size[1] / 2) + random.randint(-4, 4)
-
-                            self.page.run_cdp('Input.dispatchMouseEvent',
-                                              type='mouseMoved', x=cx, y=cy,
-                                              button='none', modifiers=0)
-                            time.sleep(random.uniform(0.05, 0.12))
-                            self.page.run_cdp('Input.dispatchMouseEvent',
-                                              type='mousePressed', x=cx, y=cy,
-                                              button='left', clickCount=1, modifiers=0)
-                            time.sleep(random.uniform(0.04, 0.10))
-                            self.page.run_cdp('Input.dispatchMouseEvent',
-                                              type='mouseReleased', x=cx, y=cy,
-                                              button='left', clickCount=1, modifiers=0)
-
-                            elapsed = i * 0.2
-                            if not clicked:
-                                logger.info(f"Store Turnstile clicked at ({cx},{cy})")
-                            else:
-                                logger.info(f"Store Turnstile retry click ({elapsed:.0f}s) at ({cx},{cy})")
-                            clicked = True
-                except Exception as e:
-                    logger.warning(f"Store Turnstile click error: {e}")
-
-            time.sleep(0.2)
-
-        logger.warning("Store Turnstile NOT solved after 30s")
-        return ""
+    def _click_turnstile_iframe(self):
+        """Click Cloudflare Turnstile iframe checkbox via CDP."""
+        import random
+        try:
+            iframe_el = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=2)
+            if not iframe_el:
+                return
+            try:
+                iframe_el.scroll.to_see()
+                time.sleep(0.3)
+            except Exception:
+                pass
+            iframe_el = self.page.ele('css:iframe[src*="challenges.cloudflare.com"]', timeout=1)
+            if not iframe_el:
+                return
+            try:
+                vp_loc = iframe_el.rect.viewport_location
+            except Exception:
+                vp_loc = iframe_el.rect.location
+            size = iframe_el.rect.size
+            cx = int(vp_loc[0]) + random.randint(28, 45)
+            cy = int(vp_loc[1] + size[1] / 2) + random.randint(-4, 4)
+            logger.info(f"Turnstile iframe click at ({cx},{cy})")
+            self.page.run_cdp('Input.dispatchMouseEvent', type='mouseMoved', x=cx, y=cy, button='none', modifiers=0)
+            time.sleep(random.uniform(0.05, 0.12))
+            self.page.run_cdp('Input.dispatchMouseEvent', type='mousePressed', x=cx, y=cy, button='left', clickCount=1, modifiers=0)
+            time.sleep(random.uniform(0.04, 0.10))
+            self.page.run_cdp('Input.dispatchMouseEvent', type='mouseReleased', x=cx, y=cy, button='left', clickCount=1, modifiers=0)
+        except Exception as e:
+            logger.warning(f"Turnstile iframe click error: {e}")
 
     def _classify_topup_error(self, error_msg: str) -> GoPlayErrorCode:
         """Classify topup error messages returned by GoPlay."""
@@ -668,6 +763,123 @@ class GoPlayService:
             raise GoPlayError(self._classify_topup_error(error_msg), error_msg)
 
     # ------------------------------------------------------------------
+    # Browser-native card topup (fallback)
+    # ------------------------------------------------------------------
+
+    def _browser_card_topup(self, game: GameCode, package, card_serial: str, card_code: str) -> dict:
+        """Submit card via browser form — lets GoPlay JS handle Turnstile natively."""
+        logger.info("🔄 Browser-native card topup (fallback)...")
+
+        # Reload page to reset Turnstile state
+        self.page.get(f'https://goplay.vn/cua-hang/{game.value}')
+        self.page.wait.ele_displayed('css:.goPlay-package', timeout=10)
+        time.sleep(2)
+
+        # Step 1: Click on the package
+        pack_selector = getattr(package, 'selector', None)
+        if pack_selector:
+            pkg_el = self.page.ele(pack_selector, timeout=5)
+            if pkg_el:
+                self._click(pkg_el)
+                logger.info(f"Clicked package: {package.pack_name}")
+                time.sleep(1)
+
+        # Step 2: Select "Thẻ Vcoin" payment method
+        payment_el = self.page.ele('css:.payment-item[data-method="CARD-VCOIN"]', timeout=5)
+        if payment_el:
+            self._click(payment_el)
+            logger.info("Selected payment: CARD-VCOIN")
+            time.sleep(1)
+        else:
+            logger.warning("CARD-VCOIN payment method not found")
+
+        # Step 3: Fill serial input
+        serial_input = (
+            self.page.ele('css:input[name="serial"]', timeout=3)
+            or self.page.ele('css:input[placeholder*="serial" i]', timeout=2)
+            or self.page.ele('css:#serial', timeout=2)
+        )
+        if serial_input:
+            serial_input.clear()
+            serial_input.input(card_serial)
+            logger.info(f"Serial entered: {card_serial[:4]}****{card_serial[-4:]}")
+        else:
+            raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, "Serial input not found in browser")
+
+        # Step 4: Fill code input
+        code_input = (
+            self.page.ele('css:input[name="code"]', timeout=3)
+            or self.page.ele('css:input[placeholder*="code" i]', timeout=2)
+            or self.page.ele('css:#code', timeout=2)
+            or self.page.ele('css:input[placeholder*="mã" i]', timeout=2)
+        )
+        if code_input:
+            code_input.clear()
+            code_input.input(card_code)
+            logger.info("Card code entered")
+        else:
+            raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, "Code input not found in browser")
+
+        time.sleep(0.5)
+
+        # Step 5: Click submit — GoPlay JS will handle Turnstile via verifyAsync
+        submit_btn = (
+            self.page.ele('css:button.btn-topup', timeout=3)
+            or self.page.ele('css:button[type="submit"]', timeout=3)
+            or self.page.ele('text:Thanh toán', timeout=3)
+            or self.page.ele('text:Nạp thẻ', timeout=3)
+            or self.page.ele('css:.btn-payment', timeout=3)
+        )
+        if submit_btn:
+            self._click(submit_btn)
+            logger.info("Clicked submit button")
+        else:
+            # Try submitting via JS
+            logger.info("No submit button found, trying JS form submit...")
+            self.page.run_js("""
+                var form = document.querySelector('form') || document.querySelector('[data-method="CARD-VCOIN"]');
+                if (form && form.closest('form')) form.closest('form').submit();
+            """)
+
+        # Step 6: Wait for result (popup/alert or page change)
+        time.sleep(5)
+
+        # Try to detect result
+        # Check for success popup
+        result_text = None
+        for sel in ['css:.swal2-content', 'css:.popup-message', 'css:.alert-success', 'css:.noti-content']:
+            el = self.page.ele(sel, timeout=2)
+            if el:
+                result_text = el.text
+                break
+
+        if not result_text:
+            # Check page body for success/error keywords
+            try:
+                result_text = self.page.run_js('return document.body.innerText.substring(0, 1000)')
+            except Exception:
+                pass
+
+        if result_text and ('thành công' in result_text.lower() or 'nhận được' in result_text.lower()):
+            go_match = re.search(r'nhận được\s*(\d+)\s*GO', result_text, re.IGNORECASE)
+            go_received = int(go_match.group(1)) if go_match else None
+            logger.info(f"🎉 Browser topup OK: {result_text[:100]}")
+            return {
+                'success': True,
+                'message': result_text[:200],
+                'go_received': go_received,
+                'balance': None,
+                'log_id': None,
+            }
+        elif result_text and 'captcha' in result_text.lower():
+            raise GoPlayError(GoPlayErrorCode.CAPTCHA_REQUIRED, result_text[:200])
+        elif result_text:
+            logger.warning(f"Browser topup result unclear: {result_text[:200]}")
+            raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, result_text[:200])
+        else:
+            raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, "No result detected after browser submit")
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -695,8 +907,15 @@ class GoPlayService:
                 else:
                     raise
 
-            # HTTP card topup (replaces browser click flow)
-            result = self._http_card_topup(game, card_serial, card_code)
+            # Try HTTP card topup first (faster)
+            try:
+                result = self._http_card_topup(game, card_serial, card_code)
+            except GoPlayError as http_err:
+                if http_err.code == GoPlayErrorCode.CAPTCHA_REQUIRED:
+                    logger.warning("HTTP topup failed (captcha), falling back to browser-native...")
+                    result = self._browser_card_topup(game, package, card_serial, card_code)
+                else:
+                    raise
 
             return {
                 "success": True,
