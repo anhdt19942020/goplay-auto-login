@@ -555,10 +555,24 @@ class GoPlayService:
         GoPlayService._cached_turnstile_time = time.time()
 
     def _invalidate_turnstile_cache(self):
-        """Clear cached Turnstile token (e.g. after rejection)."""
+        """Clear cached token AND reset widget on page for fresh solve."""
         GoPlayService._cached_turnstile_token = None
         GoPlayService._cached_turnstile_time = 0
-        logger.info("Turnstile cache invalidated")
+        # Reset Turnstile widget so next solve gets a NEW token
+        try:
+            self.page.run_js("""
+                // Clear the hidden input value
+                var inp = document.querySelector('input[name="cf-turnstile-response"]');
+                if (inp) inp.value = '';
+                // Reset Turnstile widget
+                if (typeof turnstile !== 'undefined' && typeof turnstile.reset === 'function') {
+                    turnstile.reset();
+                }
+                window.__topup_turnstile = null;
+            """)
+        except Exception:
+            pass
+        logger.info("Turnstile cache + widget reset")
 
     def _check_turnstile_input(self) -> str | None:
         """Check if cf-turnstile-response input has a value."""
