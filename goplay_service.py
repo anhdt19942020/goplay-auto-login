@@ -449,6 +449,11 @@ class GoPlayService:
     # ------------------------------------------------------------------
 
     def _navigate_to_game(self, game: GameCode):
+        expected_path = f'/cua-hang/{game.value}'
+        current_url = self.page.url or ''
+        if expected_path in current_url and 'oauth' not in current_url:
+            logger.info(f"Already on game page: {current_url} (skipping navigate)")
+            return
         self.page.get(f'https://goplay.vn/cua-hang/{game.value}')
         self.page.wait.ele_displayed('css:.goPlay-package', timeout=10)
         if 'oauth/dang-nhap' in self.page.url or 'signin' in self.page.url:
@@ -549,6 +554,12 @@ class GoPlayService:
         GoPlayService._cached_turnstile_token = token
         GoPlayService._cached_turnstile_time = time.time()
 
+    def _invalidate_turnstile_cache(self):
+        """Clear cached Turnstile token (e.g. after rejection)."""
+        GoPlayService._cached_turnstile_token = None
+        GoPlayService._cached_turnstile_time = 0
+        logger.info("Turnstile cache invalidated")
+
     def _check_turnstile_input(self) -> str | None:
         """Check if cf-turnstile-response input has a value."""
         try:
@@ -628,7 +639,7 @@ class GoPlayService:
             return popup_code
         return GoPlayErrorCode.PAYMENT_ERROR
 
-    def _http_card_topup(self, game: GameCode, card_serial: str, card_code: str, method: str = "CARD-VCOIN") -> dict:
+    def _http_card_topup(self, game: GameCode, card_serial: str, card_code: str, method: str = "CARD-VCOIN", _retried: bool = False) -> dict:
         """Submit card topup via HTTP POST instead of browser clicks."""
         # Validate card info
         errors = []
@@ -691,7 +702,6 @@ class GoPlayService:
             topup_data = data.get("data", {})
             go_received = topup_data.get("Topup")
             balance = topup_data.get("totalBalance")
-            # Also try parsing from message
             if not go_received:
                 go_match = re.search(r'nhận được\s*(\d+)\s*GO', msg, re.IGNORECASE)
                 go_received = int(go_match.group(1)) if go_match else None
@@ -705,8 +715,16 @@ class GoPlayService:
             }
         else:
             error_msg = data.get("message", "Lỗi không xác định")
+            error_code = self._classify_topup_error(error_msg)
             logger.warning(f"❌ Topup failed: {error_msg}")
-            raise GoPlayError(self._classify_topup_error(error_msg), error_msg)
+
+            # Auto-retry once with fresh token if captcha was cached
+            if error_code == GoPlayErrorCode.CAPTCHA_REQUIRED and not _retried:
+                logger.info("Cached token rejected — invalidating and retrying with fresh token...")
+                self._invalidate_turnstile_cache()
+                return self._http_card_topup(game, card_serial, card_code, method, _retried=True)
+
+            raise GoPlayError(error_code, error_msg)
 
     # ------------------------------------------------------------------
     # Browser-native card topup (fallback)
@@ -859,6 +877,7 @@ class GoPlayService:
             except GoPlayError as http_err:
                 if http_err.code == GoPlayErrorCode.CAPTCHA_REQUIRED:
                     logger.warning("HTTP topup failed (captcha), falling back to browser-native...")
+                    self._invalidate_turnstile_cache()
                     result = self._browser_card_topup(game, package, card_serial, card_code)
                 else:
                     raise
