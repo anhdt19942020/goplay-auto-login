@@ -774,7 +774,7 @@ class GoPlayService:
         logger.info(f"  serial={card_serial[:4]}****{card_serial[-4:]}" if len(card_serial) > 8 else f"  serial={card_serial}")
 
         try:
-            with httpx.Client(cookies=cookies, timeout=30, follow_redirects=True) as client:
+            with httpx.Client(cookies=cookies, timeout=30, follow_redirects=False) as client:
                 resp = client.post(api_url, json=payload, headers=headers)
         except httpx.TimeoutException:
             raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, "HTTP topup request timeout (30s)")
@@ -783,8 +783,24 @@ class GoPlayService:
 
         logger.info(f"  HTTP {resp.status_code} | Content-Type: {resp.headers.get('content-type', 'N/A')}")
 
+        # 302 redirect to login → server-side session expired
+        if resp.status_code in (301, 302, 303, 307):
+            redirect_url = resp.headers.get('location', '')
+            logger.warning(f"HTTP redirect to {redirect_url} → session expired server-side")
+            self._clear_session(GoPlayService._current_account or '')
+            GoPlayService._current_account = None
+            raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT, "SESSION_EXPIRED")
+
         if resp.status_code != 200:
             raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, f"HTTP {resp.status_code}: {resp.text[:200]}")
+
+        # Guard against HTML responses (e.g. Cloudflare challenge page)
+        content_type = resp.headers.get('content-type', '')
+        if 'text/html' in content_type:
+            logger.warning("Got HTML instead of JSON — likely session or Cloudflare issue")
+            self._clear_session(GoPlayService._current_account or '')
+            GoPlayService._current_account = None
+            raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT, "SESSION_EXPIRED")
 
         try:
             data = resp.json()
@@ -970,7 +986,12 @@ class GoPlayService:
             try:
                 result = self._http_card_topup(game, card_serial, card_code)
             except GoPlayError as http_err:
-                if http_err.code == GoPlayErrorCode.CAPTCHA_REQUIRED:
+                if 'SESSION_EXPIRED' in str(http_err.detail):
+                    logger.warning("HTTP topup got session expired → re-login and retry...")
+                    self._login(account, password, force_fresh=True)
+                    self._navigate_to_game(game)
+                    result = self._http_card_topup(game, card_serial, card_code)
+                elif http_err.code == GoPlayErrorCode.CAPTCHA_REQUIRED:
                     logger.warning("HTTP topup failed (captcha), falling back to browser-native...")
                     self._invalidate_turnstile_cache()
                     result = self._browser_card_topup(game, package, card_serial, card_code)
