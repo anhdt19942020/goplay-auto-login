@@ -116,7 +116,6 @@ class TopUpRequest(BaseModel):
     game: str
     account: str
     password: str
-    package: str
     card_serial: str
     card_code: str
     url_callback: Optional[str] = None
@@ -128,7 +127,6 @@ class TopUpRequest(BaseModel):
                     "game": "CF",
                     "account": "username",
                     "password": "password",
-                    "package": "GO_100",
                     "card_serial": "123456789",
                     "card_code": "987654321",
                 },
@@ -136,7 +134,6 @@ class TopUpRequest(BaseModel):
                     "game": "DREAMY",
                     "account": "username",
                     "password": "password",
-                    "package": "DEFAULT",
                     "card_serial": "123456789",
                     "card_code": "987654321",
                 },
@@ -194,16 +191,13 @@ async def topup(req: TopUpRequest):
             "message": f"Game {req.game} chưa được hỗ trợ packages",
             "detail": None,
         }
-    try:
-        package = pkg_class[req.package]
-    except KeyError:
-        valid = [p.name for p in pkg_class]
-        return {
-            "success": False,
-            "error_code": GoPlayErrorCode.INVALID_PACKAGE.value,
-            "message": f"{GoPlayErrorCode.INVALID_PACKAGE.message}. Hợp lệ: {valid}",
-            "detail": None,
-        }
+    # Use GO_100 if available, otherwise use DEFAULT or first available
+    if hasattr(pkg_class, 'GO_100'):
+        package = pkg_class.GO_100
+    elif hasattr(pkg_class, 'DEFAULT'):
+        package = pkg_class.DEFAULT
+    else:
+        package = list(pkg_class)[0]
 
     if task_queue.full():
         queue_stats["total_rejected"] += 1

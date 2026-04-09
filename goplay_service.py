@@ -1004,9 +1004,6 @@ class GoPlayService:
                 "message": result.get('message', 'Nạp thẻ thành công'),
                 "detail": {
                     "game": game.value,
-                    "package": package.pack_name,
-                    "price": package.price,
-                    "go": package.go,
                     "go_received": result.get('go_received'),
                     "balance": result.get('balance'),
                     "log_id": result.get('log_id'),
