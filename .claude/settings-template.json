@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": ["./.claude/hooks/format-code.sh"]
+      },
+      {
+        "matcher": "Write",
+        "hooks": ["./.claude/hooks/security-scan.sh"]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": ["./.claude/hooks/format-code.sh"]
+      }
+    ]
+  },
+  "model": "haiku"
+}

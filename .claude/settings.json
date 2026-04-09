@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd $CLAUDE_PROJECT_DIR && ./vendor/bin/pint \"$CLAUDE_TOOL_OUTPUT_PATH\" 2>/dev/null || true",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/validate-bash.sh \"$CLAUDE_TOOL_BASH_COMMAND\" 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "permissionMode": "default"
+}
