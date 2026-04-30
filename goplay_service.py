@@ -121,6 +121,7 @@ class GoPlayService:
             opts.set_argument(f'--proxy-server={proxy}')
             logger.info(f"Proxy enabled: {proxy}")
         else:
+            opts.set_argument('--no-proxy-server')
             logger.info("Proxy: none (direct connection)")
 
         # Auto-detect Chrome path on Windows
