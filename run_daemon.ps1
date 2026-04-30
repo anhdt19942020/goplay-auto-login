@@ -5,6 +5,9 @@ $workDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $pidFile = Join-Path $workDir "goplay_api.pid"
 $logFile = Join-Path $workDir "daemon.log"
 $restartDelay = 5
+$pythonExe = Join-Path $workDir ".venv\Scripts\python.exe"
+
+$env:GOPLAY_PROXY = "socks5://u_USER_FTU1Bm:f1vwCGEmftmr@dc-t5.proxyvt.com:45699"
 
 function Write-Log($msg) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -28,7 +31,7 @@ Register-EngineEvent PowerShell.Exiting -Action {
 while ($true) {
     Write-Log "Starting uvicorn..."
 
-    $global:childProc = Start-Process -FilePath "python" `
+    $global:childProc = Start-Process -FilePath $pythonExe `
         -ArgumentList "-m uvicorn main:app --host 0.0.0.0 --port 8000" `
         -WorkingDirectory $workDir `
         -PassThru -NoNewWindow
