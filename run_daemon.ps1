@@ -7,7 +7,6 @@ $logFile = Join-Path $workDir "daemon.log"
 $restartDelay = 5
 $pythonExe = Join-Path $workDir ".venv\Scripts\python.exe"
 
-$env:GOPLAY_PROXY = "socks5://u_USER_FTU1Bm:f1vwCGEmftmr@dc-t5.proxyvt.com:45699"
 
 function Write-Log($msg) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
