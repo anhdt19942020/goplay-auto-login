@@ -3,6 +3,13 @@ chrome_profile_vlcm/
 chrome_profile_test/
 debug/
 
+# Session tokens (per-account)
+sessions/
+
+# Editor/hotfix backups
+*.bak
+*.bak-*
+
 # Python
 __pycache__/
 *.py[cod]

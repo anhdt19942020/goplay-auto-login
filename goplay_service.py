@@ -487,12 +487,16 @@ class GoPlayService:
             return  # Session restored, no login needed!
 
         self.page.get('https://goplay.vn/')
-        self.page.wait.ele_displayed('css:.btn-auth.box-login', timeout=5)
+        # Chờ SPA render: hoặc nút mở form login (logged-out), hoặc userInfo (logged-in)
+        self.page.wait.ele_displayed('css:.btn-auth.box-login, css:.userInfo', timeout=10)
 
-        # Double-check: maybe already logged in (cookie from profile)
-        if self.page.ele('css:.userInfo', timeout=1):
+        # Logged-in khi KHÔNG có nút mở form login — bền hơn việc dò .userInfo theo timing render.
+        # Bắt buộc logout rồi reload để form login VTC xuất hiện (nếu không, .vtc-user-login sẽ thiếu).
+        if not self.page.ele('css:.btn-auth.box-login', timeout=2):
             logger.info("Already logged in (from profile), logging out for new account...")
             self._logout()
+            self.page.get('https://goplay.vn/')
+            self.page.wait.ele_displayed('css:.btn-auth.box-login', timeout=10)
 
         logger.info(f"Logging in as {account}...")
         self._click(self.page.ele('css:.btn-auth.box-login'))
