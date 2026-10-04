@@ -25,6 +25,8 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+# httpx INFO logs full request URLs, which embed the Telegram bot token
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 MAX_QUEUE_SIZE = 5
 TASK_TIMEOUT = 90

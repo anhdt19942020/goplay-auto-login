@@ -631,8 +631,9 @@ class GoPlayService:
         except Exception:
             pass
 
+        # POSTing without a token only earns a captcha rejection from GoPlay
         logger.warning("Turnstile NOT solved after 20s")
-        return ""
+        raise GoPlayError(GoPlayErrorCode.CAPTCHA_REQUIRED, "Không giải được captcha cửa hàng sau 20s")
 
     def _cache_turnstile_token(self, token: str):
         """Cache Turnstile token for reuse across requests."""
@@ -842,123 +843,6 @@ class GoPlayService:
             raise GoPlayError(error_code, error_msg)
 
     # ------------------------------------------------------------------
-    # Browser-native card topup (fallback)
-    # ------------------------------------------------------------------
-
-    def _browser_card_topup(self, game: GameCode, package, card_serial: str, card_code: str) -> dict:
-        """Submit card via browser form — lets GoPlay JS handle Turnstile natively."""
-        logger.info("🔄 Browser-native card topup (fallback)...")
-
-        # Reload page to reset Turnstile state
-        self.page.get(f'https://goplay.vn/cua-hang/{game.value}')
-        self.page.wait.ele_displayed('css:.goPlay-package', timeout=10)
-        time.sleep(2)
-
-        # Step 1: Click on the package
-        pack_selector = getattr(package, 'selector', None)
-        if pack_selector:
-            pkg_el = self.page.ele(pack_selector, timeout=5)
-            if pkg_el:
-                self._click(pkg_el)
-                logger.info(f"Clicked package: {package.pack_name}")
-                time.sleep(1)
-
-        # Step 2: Select "Thẻ Vcoin" payment method
-        payment_el = self.page.ele('css:.payment-item[data-method="CARD-VCOIN"]', timeout=5)
-        if payment_el:
-            self._click(payment_el)
-            logger.info("Selected payment: CARD-VCOIN")
-            time.sleep(1)
-        else:
-            logger.warning("CARD-VCOIN payment method not found")
-
-        # Step 3: Fill serial input
-        serial_input = (
-            self.page.ele('css:input[name="serial"]', timeout=3)
-            or self.page.ele('css:input[placeholder*="serial" i]', timeout=2)
-            or self.page.ele('css:#serial', timeout=2)
-        )
-        if serial_input:
-            serial_input.clear()
-            serial_input.input(card_serial)
-            logger.info(f"Serial entered: {card_serial[:4]}****{card_serial[-4:]}")
-        else:
-            raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, "Serial input not found in browser")
-
-        # Step 4: Fill code input
-        code_input = (
-            self.page.ele('css:input[name="code"]', timeout=3)
-            or self.page.ele('css:input[placeholder*="code" i]', timeout=2)
-            or self.page.ele('css:#code', timeout=2)
-            or self.page.ele('css:input[placeholder*="mã" i]', timeout=2)
-        )
-        if code_input:
-            code_input.clear()
-            code_input.input(card_code)
-            logger.info("Card code entered")
-        else:
-            raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, "Code input not found in browser")
-
-        time.sleep(0.5)
-
-        # Step 5: Click submit — GoPlay JS will handle Turnstile via verifyAsync
-        submit_btn = (
-            self.page.ele('css:button.btn-topup', timeout=3)
-            or self.page.ele('css:button[type="submit"]', timeout=3)
-            or self.page.ele('text:Thanh toán', timeout=3)
-            or self.page.ele('text:Nạp thẻ', timeout=3)
-            or self.page.ele('css:.btn-payment', timeout=3)
-        )
-        if submit_btn:
-            self._click(submit_btn)
-            logger.info("Clicked submit button")
-        else:
-            # Try submitting via JS
-            logger.info("No submit button found, trying JS form submit...")
-            self.page.run_js("""
-                var form = document.querySelector('form') || document.querySelector('[data-method="CARD-VCOIN"]');
-                if (form && form.closest('form')) form.closest('form').submit();
-            """)
-
-        # Step 6: Wait for result (popup/alert or page change)
-        time.sleep(5)
-
-        # Try to detect result
-        # Check for success popup
-        result_text = None
-        for sel in ['css:.swal2-content', 'css:.popup-message', 'css:.alert-success', 'css:.noti-content']:
-            el = self.page.ele(sel, timeout=2)
-            if el:
-                result_text = el.text
-                break
-
-        if not result_text:
-            # Check page body for success/error keywords
-            try:
-                result_text = self.page.run_js('return document.body.innerText.substring(0, 1000)')
-            except Exception:
-                pass
-
-        if result_text and ('thành công' in result_text.lower() or 'nhận được' in result_text.lower()):
-            go_match = re.search(r'nhận được\s*(\d+)\s*GO', result_text, re.IGNORECASE)
-            go_received = int(go_match.group(1)) if go_match else None
-            logger.info(f"🎉 Browser topup OK: {result_text[:100]}")
-            return {
-                'success': True,
-                'message': result_text[:200],
-                'go_received': go_received,
-                'balance': None,
-                'log_id': None,
-            }
-        elif result_text and 'captcha' in result_text.lower():
-            raise GoPlayError(GoPlayErrorCode.CAPTCHA_REQUIRED, result_text[:200])
-        elif result_text:
-            logger.warning(f"Browser topup result unclear: {result_text[:200]}")
-            raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, result_text[:200])
-        else:
-            raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, "No result detected after browser submit")
-
-    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -997,9 +881,12 @@ class GoPlayService:
                     self._navigate_to_game(game)
                     result = self._http_card_topup(game, card_serial, card_code)
                 elif http_err.code == GoPlayErrorCode.CAPTCHA_REQUIRED:
-                    logger.warning("HTTP topup failed (captcha), falling back to browser-native...")
+                    # A stuck widget rarely recovers in place; a fresh store page gets a new one
+                    logger.warning("HTTP topup failed (captcha), reloading store page and retrying once...")
                     self._invalidate_turnstile_cache()
-                    result = self._browser_card_topup(game, package, card_serial, card_code)
+                    self.page.get(f'https://goplay.vn/cua-hang/{game.value}')
+                    self.page.wait.ele_displayed('css:.goPlay-package', timeout=10)
+                    result = self._http_card_topup(game, card_serial, card_code)
                 else:
                     raise
 
