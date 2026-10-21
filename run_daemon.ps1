@@ -13,6 +13,14 @@ function Write-Log($msg) {
     "$ts $msg" | Out-File -Append -Encoding utf8 $logFile
 }
 
+# Single instance: a second watchdog can't bind :8000, so it crash-loops and every
+# restart's browser pre-warm attaches to the live Chrome on :9222 mid-topup.
+$mutex = New-Object System.Threading.Mutex($false, "Global\GoPlayApiDaemon")
+if (-not $mutex.WaitOne(0)) {
+    Write-Log "Another daemon is already running, exiting (PID: $PID)"
+    exit 1
+}
+
 # Save daemon PID
 $PID | Out-File -Encoding ascii $pidFile
 Write-Log "Daemon started (PID: $PID)"
