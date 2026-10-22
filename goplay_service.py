@@ -460,12 +460,24 @@ class GoPlayService:
         """Logout by clearing cookies and reloading."""
         logger.info(f"Logging out (was: {GoPlayService._current_account})...")
         try:
-            self.page.set.cookies.clear()
+            self._clear_all_cookies()
             self.page.get('https://goplay.vn/')
             self.page.wait.ele_displayed('css:.btn-auth.box-login', timeout=5)
         except Exception:
             pass
         GoPlayService._current_account = None
+
+    def _clear_all_cookies(self):
+        # page.set.cookies.clear() only drops the current domain; the VTC SSO domain keeps
+        # stale cookies that can bounce the next login to /sso/LoginError instead of the form.
+        self.page.run_cdp('Network.clearBrowserCookies')
+
+    def _open_login_form(self) -> bool:
+        """Click through to the VTC SSO username form. False if it never appears."""
+        self._click(self.page.ele('css:.btn-auth.box-login'))
+        self.page.wait.ele_displayed('css:a.btn-auth.btn-login', timeout=2)
+        self._click(self.page.ele('css:a.btn-auth.btn-login'))
+        return bool(self.page.wait.ele_displayed('css:.vtc-user-login', timeout=10, raise_err=False))
 
     def _login(self, account: str, password: str, force_fresh: bool = False):
         # Already logged in with the same account → skip
@@ -499,11 +511,13 @@ class GoPlayService:
             self.page.wait.ele_displayed('css:.btn-auth.box-login', timeout=10)
 
         logger.info(f"Logging in as {account}...")
-        self._click(self.page.ele('css:.btn-auth.box-login'))
-        self.page.wait.ele_displayed('css:a.btn-auth.btn-login', timeout=2)
-
-        self._click(self.page.ele('css:a.btn-auth.btn-login'))
-        self.page.wait.ele_displayed('css:.vtc-user-login')
+        if not self._open_login_form():
+            logger.warning(f"Login form missing at {self.page.url}, clearing all cookies and retrying once")
+            self._clear_all_cookies()
+            self.page.get('https://goplay.vn/')
+            self.page.wait.ele_displayed('css:.btn-auth.box-login', timeout=10)
+            if not self._open_login_form():
+                raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT, f"Không mở được form đăng nhập ({self.page.url})")
         self.page.ele('css:.vtc-user-login').input(account)
         self._handle_turnstile()
         self._click(self.page.ele('#btn-submit-username'))
@@ -541,7 +555,7 @@ class GoPlayService:
             return
         self.page.get(f'https://goplay.vn/cua-hang/{game.value}')
         self.page.wait.ele_displayed('css:.goPlay-package', timeout=10)
-        if 'oauth/dang-nhap' in self.page.url or 'signin' in self.page.url:
+        if any(marker in self.page.url for marker in ('oauth/dang-nhap', 'signin', 'sso/LoginError')):
             logger.warning("Session expired (redirected to login page), will re-login")
             GoPlayService._current_account = None
             raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT, "SESSION_EXPIRED")
