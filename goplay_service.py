@@ -35,6 +35,8 @@ def _translate_error(msg: str) -> str:
     return result
 
 WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Marker in LOGIN_TIMEOUT detail: topup() restarts Chrome once when seen
+TURNSTILE_STUCK = "TURNSTILE_STUCK"
 
 
 class GoPlayError(Exception):
@@ -223,18 +225,18 @@ class GoPlayService:
     # Cloudflare Turnstile
     # ------------------------------------------------------------------
 
-    def _handle_turnstile(self, detect_timeout: int = 5):
-        """Click Cloudflare Turnstile checkbox if present."""
+    def _handle_turnstile(self, detect_timeout: int = 5) -> bool:
+        """Click Cloudflare Turnstile checkbox if present. False if a widget was left unverified."""
         import random
         try:
             response_input = self.page.ele('css:input[name="cf-turnstile-response"]', timeout=detect_timeout)
             if not response_input:
-                return
+                return True
 
             val = response_input.attr('value')
             if val:
                 logger.info(f"Turnstile already verified (token: {val[:20]}...)")
-                return
+                return True
 
             logger.info("Cloudflare Turnstile detected, clicking immediately...")
 
@@ -321,7 +323,7 @@ class GoPlayService:
                     val = response_input.attr('value')
                     if val:
                         logger.info(f"Turnstile verified (token: {val[:20]}...)")
-                        return
+                        return True
                 except Exception:
                     pass
 
@@ -336,6 +338,7 @@ class GoPlayService:
             logger.warning("Turnstile NOT verified after 30s")
         except Exception as e:
             logger.warning(f"Turnstile handling error: {e}")
+        return False
 
     # ------------------------------------------------------------------
     # Login / Logout
@@ -519,7 +522,7 @@ class GoPlayService:
             if not self._open_login_form():
                 raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT, f"Không mở được form đăng nhập ({self.page.url})")
         self.page.ele('css:.vtc-user-login').input(account)
-        self._handle_turnstile()
+        turnstile_ok = self._handle_turnstile()
         self._click(self.page.ele('#btn-submit-username'))
 
         for _ in range(60):  # max 30s
@@ -529,6 +532,8 @@ class GoPlayService:
             if error_el and error_el.text.strip():
                 raise GoPlayError(GoPlayErrorCode.ACCOUNT_NOT_REGISTERED, error_el.text.strip())
         else:
+            if not turnstile_ok:
+                raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT, f"Không thể chuyển sang bước nhập mật khẩu ({TURNSTILE_STUCK})")
             raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT, "Không thể chuyển sang bước nhập mật khẩu")
 
         self.page.ele('#password').input(password)
@@ -872,7 +877,16 @@ class GoPlayService:
         try:
             self._ensure_browser()
 
-            self._login(account, password)
+            try:
+                self._login(account, password)
+            except GoPlayError as login_err:
+                if TURNSTILE_STUCK not in str(login_err.detail):
+                    raise
+                # A browser that stopped passing Turnstile stays stuck; a fresh Chrome recovers
+                logger.warning("Login Turnstile stuck → restarting browser and retrying once...")
+                self._kill_browser()
+                self._ensure_browser()
+                self._login(account, password, force_fresh=True)
 
             try:
                 self._navigate_to_game(game)
