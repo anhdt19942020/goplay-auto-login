@@ -36,6 +36,8 @@ class GoPlayErrorCode(str, Enum):
     def from_popup_message(cls, popup_text: str) -> "GoPlayErrorCode":
         """Map GoPlay popup message text to error code."""
         normalized = popup_text.strip().lower()
+        if any(marker in normalized for marker in _TRANSIENT_MARKERS):
+            return cls.UNKNOWN_ERROR
         for text, code in _POPUP_TEXT_MAP.items():
             if text in normalized:
                 return code
@@ -71,7 +73,25 @@ _POPUP_TEXT_MAP: dict[str, GoPlayErrorCode] = {
     "chưa được đăng ký": GoPlayErrorCode.ACCOUNT_NOT_REGISTERED,
     "bạn chưa xác thực captcha": GoPlayErrorCode.CAPTCHA_REQUIRED,
     "captcha": GoPlayErrorCode.CAPTCHA_REQUIRED,
+    # PAYMENT_ERROR means the card itself was rejected: the caller moves on to
+    # another card, so unmatched popups must never map here.
+    "thẻ không hợp lệ": GoPlayErrorCode.PAYMENT_ERROR,
+    "thẻ không đúng": GoPlayErrorCode.PAYMENT_ERROR,
+    "thẻ sai": GoPlayErrorCode.PAYMENT_ERROR,
+    "sai thẻ": GoPlayErrorCode.PAYMENT_ERROR,
+    "mã thẻ không": GoPlayErrorCode.PAYMENT_ERROR,
+    "mã thẻ sai": GoPlayErrorCode.PAYMENT_ERROR,
+    "serial không": GoPlayErrorCode.PAYMENT_ERROR,
+    "serial sai": GoPlayErrorCode.PAYMENT_ERROR,
+    "thẻ đã được sử dụng": GoPlayErrorCode.PAYMENT_ERROR,
+    "thẻ đã sử dụng": GoPlayErrorCode.PAYMENT_ERROR,
+    "thẻ hết hạn": GoPlayErrorCode.PAYMENT_ERROR,
+    "thẻ không tồn tại": GoPlayErrorCode.PAYMENT_ERROR,
 }
+
+# Server-side trouble says nothing about the card; checked before the map so a
+# busy/maintenance message that also mentions a card is never read as a bad card.
+_TRANSIENT_MARKERS = ("đang bận", "thử lại sau", "bảo trì", "quá tải", "tạm thời", "hệ thống")
 
 
 class GameCode(str, Enum):

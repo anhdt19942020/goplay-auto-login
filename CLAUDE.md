@@ -97,7 +97,8 @@ curl -X POST http://124.158.4.122:8000/go-play/topup \
 - `WRONG_PASSWORD` / `ACCOUNT_LOCKED` / `ACCOUNT_NOT_FOUND` — login failure, terminal
 - `INVALID_CARD_INFO` — wrong card serial/code, terminal
 - `CAPTCHA_REQUIRED` — Turnstile captcha not auto-solved
-- `PAYMENT_ERROR` / `PACKAGE_NOT_FOUND` — shop navigation failure
+- `PAYMENT_ERROR` — card rejected by GoPlay (caller tries another card); never use for busy/unknown errors, those are `UNKNOWN_ERROR`
+- `PACKAGE_NOT_FOUND` — shop navigation failure
 - `LOGIN_TIMEOUT` — browser hung during login
 - `BROWSER_ERROR` — Chrome failed to launch
 - `UNKNOWN_ERROR` — uncaught exception

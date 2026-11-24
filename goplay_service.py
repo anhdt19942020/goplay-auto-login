@@ -752,11 +752,7 @@ class GoPlayService:
 
     def _classify_topup_error(self, error_msg: str) -> GoPlayErrorCode:
         """Classify topup error messages returned by GoPlay."""
-        normalized = (error_msg or "").strip()
-        popup_code = GoPlayErrorCode.from_popup_message(normalized)
-        if popup_code != GoPlayErrorCode.UNKNOWN_ERROR:
-            return popup_code
-        return GoPlayErrorCode.PAYMENT_ERROR
+        return GoPlayErrorCode.from_popup_message((error_msg or "").strip())
 
     def _http_card_topup(self, game: GameCode, card_serial: str, card_code: str, method: str = "CARD-VCOIN", _retried: bool = False) -> dict:
         """Submit card topup via HTTP POST instead of browser clicks."""
@@ -817,7 +813,7 @@ class GoPlayService:
             raise GoPlayError(GoPlayErrorCode.LOGIN_TIMEOUT, "SESSION_EXPIRED")
 
         if resp.status_code != 200:
-            raise GoPlayError(GoPlayErrorCode.PAYMENT_ERROR, f"HTTP {resp.status_code}: {resp.text[:200]}")
+            raise GoPlayError(GoPlayErrorCode.UNKNOWN_ERROR, f"HTTP {resp.status_code}: {resp.text[:200]}")
 
         # Guard against HTML responses (e.g. Cloudflare challenge page)
         content_type = resp.headers.get('content-type', '')

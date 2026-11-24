@@ -172,7 +172,7 @@ docker-compose up -d
 | `ACCOUNT_NOT_REGISTERED` | Chưa đăng ký GoPlay |
 | `LOGIN_TIMEOUT` | Đăng nhập quá thời gian |
 | `CAPTCHA_REQUIRED` | Turnstile captcha thất bại |
-| `PAYMENT_ERROR` | Lỗi thanh toán (thẻ sai, hết hạn...) |
+| `PAYMENT_ERROR` | Thẻ bị GoPlay từ chối (thẻ sai, hết hạn...) |
 | `INVALID_CARD_INFO` | Serial/mã thẻ không hợp lệ |
 | `BROWSER_ERROR` | Lỗi trình duyệt Chrome |
 | `UNKNOWN_ERROR` | Lỗi không xác định |
